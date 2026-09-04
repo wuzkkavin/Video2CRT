@@ -176,6 +176,19 @@ from video2crt.pipeline import render_raw, burn_subtitles, mux_audio
 9. ✅ 任何新 gotcha 立即 commit + push 到 GitHub
 10. ✅ 跑 `python tests/run_all.py`，13 tests 應全綠
 
+## 重要：井水不犯河水
+
+**Video2CRT 專案只 touch 以下路徑**：
+- `C:\Users\asaialabs\Documents\Hermes\Video2CRT\`（工作目錄）
+- `C:\Users\asaialabs\AppData\Local\hermes\skills\video-crt-geom-libplacebo\`（skill 定義）
+- `C:\Users\asaialabs\AppData\Local\hermes\Video2CRT\`（HermesFullSetup mirror 子目錄）
+
+**不要碰**：
+- `C:\Users\asaialabs\opencode\workspace\opencode-full-setup\`（OpenCode CLI 工作目錄 —— 另一條 worktree）
+- 任何其他 local git repo
+
+如果 Hermes 桌面 sidebar 同時列出 `Video2CRT` 和 `opencode-full-setup`，**那是兩個獨立專案**。Video2CRT agent 只處理 Video2CRT 範圍，碰到 opencode 路徑要**立刻停**並回報用戶。User clarification 2026-09-04：「**你（Video2CRT）是他（OpenCode）的，井水不犯河水**」。
+
 ---
 
 最後更新：2026-09-04（v0.5.0 重新組織）
