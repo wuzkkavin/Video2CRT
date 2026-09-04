@@ -5,7 +5,7 @@
 ## 重大事件
 
 ### 2026-09-04 — 項目重組
-- **工作目錄搬移**：所有影片從 `C:\Users\asaialabs\Downloads\` 搬到 `C:\Users\asaialabs\Documents\Hermes\Video2CRT\`
+- **工作目錄搬移**：所有影片從 `C:\Users\<you>\Downloads\` 搬到 `C:\Users\<you>\Documents\Hermes\Video2CRT\`
 - **建立專案文件**：README.md, HANDOFF.md, WORKFLOW.md, INDEX.md, CHANGELOG.md（本檔案）
 
 ### 2026-09-04 — Skill v20 (commit 695ca35)

@@ -1,6 +1,6 @@
 @echo off
 echo === Assemble final mp4 from mpv frames + audio + subtitles ===
-cd C:\Users\asaialabs\Downloads\yt_southern_cross
+cd C:\Users\<you>\Downloads\yt_southern_cross
 
 REM Stage 1: PNG sequence -> lossless h264 mp4 (CPU encoding, fast preset)
 ffmpeg -y -framerate 30 -i mpv_full_frames/%08d.png -i audio.m4a ^

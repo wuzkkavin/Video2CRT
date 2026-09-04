@@ -8,7 +8,7 @@
 
 1. **第一步（必做）：跑 install_skill.py 驗證環境與 skill**：
    ```bash
-   cd "C:/Users/asaialabs/Documents/Hermes/Video2CRT"
+   cd "C:/Users/<you>/Documents/Hermes/Video2CRT"
    python scripts/install_skill.py
    ```
    **必須看到** `[ALL PASS] Skill v20 installed and dependencies OK.`，否則**不要**給用戶任何結論。
@@ -25,7 +25,7 @@
 如果用戶丟新 URL 給你：
 
 1. **先跑** `python scripts/install_skill.py`，確保 [ALL PASS]
-2. **工作目錄必須是**：`C:\Users\asaialabs\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
+2. **工作目錄必須是**：`C:\Users\<you>\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
 3. 跑 `docs/workflow.md` 的 Stage 1-11
 4. 自動套用 skill `video-crt-geom-libplacebo` 的所有 gotcha（共 20 個）
 5. **顯式宣告** `Found N gotchas in SKILL.md` 證明你已驗證
@@ -34,7 +34,7 @@
 ## 工作目錄結構（這是關鍵）
 
 ```
-C:\Users\asaialabs\Documents\Hermes\Video2CRT\
+C:\Users\<you>\Documents\Hermes\Video2CRT\
 ├── README.md / LICENSE / VERSION / Makefile    ← 專案 meta
 ├── docs/                                         ← 所有詳細文件
 ├── scripts/                                      ← CLI tools
@@ -62,7 +62,7 @@ handoff.md              # 該影片處理筆記（如果複雜）
 
 ## Skill 載入
 
-skill 本體：`C:\Users\asaialabs\AppData\Local\hermes\skills\video-crt-geom-libplacebo\SKILL.md`
+skill 本體：`C:\Users\<you>\AppData\Local\hermes\skills\video-crt-geom-libplacebo\SKILL.md`
 
 GitHub mirror: `https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md`
 
