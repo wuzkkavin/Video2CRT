@@ -135,6 +135,33 @@ from video2crt.pipeline import render_raw, burn_subtitles, mux_audio
 4. 9 支影片缺 handoff.md（見 `docs/index.md`）
 5. 比較輸出檔案品質，淘汰粗顆粒版本
 
+## ⏸ GUI 開發計畫（規劃中，等 user 確認才實作）
+
+**2026-09-04 user 問**：能不能把 video2crt 做成 Windows APP，貼網址就轉 CRT 影片？
+
+**已寫**：完整開發手冊 [`docs/DEV_GUIDE.md`](docs/DEV_GUIDE.md)（約 430 行，方案 B = Tkinter GUI）。
+
+**新對話 AI agent 看到這段時**：
+1. **不要直接寫 GUI code**，先讀 `docs/DEV_GUIDE.md` 確認 plan
+2. 問 user：「要繼續 GUI 開發嗎？」
+3. **只有 user 明示確認**才開始 Phase 1（orchestrator.py）
+4. **TDD 順序**：先寫測試 → 再寫 code
+5. 別又像之前沒驗證先做（user 反覆強調「先確認再執行」）
+
+**GUI 設計重點**：
+- 單一主視窗 600x500
+- Tkinter + ttk standard widgets（跨 Windows 10/11 一致）
+- WorkerThread 在 background 跑 9 stages
+- queue.Queue 從 worker 傳訊息到 UI（Tkinter 不是 thread-safe）
+- Cancel button + subprocess.terminate
+- Settings 存 %LOCALAPPDATA%/Video2CRT/settings.json
+- 用 pyinstaller --onefile 打包成 .exe
+
+**預計時程**：約 1-2 週（10 phases，TDD）。
+
+**開發順序**（不能跳）：
+Phase 1 orchestrator → 2 translation → 3 GUI 骨架 → 4 worker queue → 5 cancel → 6 settings → 7 file dialog → 8 e2e → 9 build exe → 10 manual test
+
 ## 常見 user 反饋模式
 
 | 偏好 | 解釋 |
