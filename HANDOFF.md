@@ -10,7 +10,7 @@
 
 1. **第一步（必做）：跑 install_skill.py 驗證環境與 skill**：
    ```bash
-   cd "C:/Users/asaialabs/Documents/Hermes/Video2CRT"
+   cd "C:/Users/<you>/Documents/Hermes/Video2CRT"
    python scripts/install_skill.py
    ```
    **必須看到** `[ALL PASS] Skill v23 installed and dependencies OK.`，否則**不要**給用戶任何結論。
@@ -23,12 +23,12 @@
 5. 看 [`docs/workflow.md`](docs/workflow.md) — 完整工作流程（從 URL 到 final.mp4）
 6. 看 [`docs/recipes.md`](docs/recipes.md) — 場景食譜
 7. 看 [`docs/troubleshooting.md`](docs/troubleshooting.md) — 常見錯誤排除
-8. 看 [`CHANGELOG.md`](CHANGELOG.md) — 歷史紀錄 + 學到的 23 個 gotcha
+8. 看 [`CHANGELOG.md`](CHANGELOG.md) — 歷史紀錄 + 學到的 30 個 gotcha
 
 如果用戶丟新 URL 給你：
 
 1. **立即**跑 `python scripts/install_skill.py`（**即使這對話已經跑過**, 同專案也要再跑一次 — gotcha 21)
-2. **工作目錄必須是**：`C:\Users\asaialabs\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
+2. **工作目錄必須是**：`C:\Users\<you>\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
 3. 跑 `docs/workflow.md` 的 Stage 1-11
 4. 自動套用 skill `video-crt-geom-libplacebo` 的所有 gotcha（共 **23 個**：gotcha 0 pre-flight + 1-20 main + 21 MANDATORY pre-flight + 22 MANDATORY output dir)
 5. **顯式宣告** `Found N gotchas in SKILL.md` 證明你已驗證
@@ -69,9 +69,9 @@ skill 本體：`C:\Users\<you>\AppData\Local\hermes\skills\video-crt-geom-libpla
 
 GitHub mirror: `https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md`
 
-最新版本：commit `695ca35`，含 20 個 gotcha。
+最新版本：commit `695ca35`，含 30 個 gotcha。
 
-### 20 個 gotcha 快速記憶
+### 30 個 gotcha 快速記憶
 
 1-6: 技術基礎（HOOK MAIN, force_original_aspect_ratio, -aspect 16:9, two-step pipeline, GPU, cropdetect）
 7-10: Whisper + 字幕基本（faster-whisper, 兩行字幕, 段間距, 跨段驗證）
@@ -206,12 +206,12 @@ Phase 1 orchestrator → 2 translation → 3 GUI 骨架 → 4 worker queue → 5
 ## 重要：井水不犯河水
 
 **Video2CRT 專案只 touch 以下路徑**：
-- `C:\Users\asaialabs\Documents\Hermes\Video2CRT\`（工作目錄）
-- `C:\Users\asaialabs\AppData\Local\hermes\skills\video-crt-geom-libplacebo\`（skill 定義）
-- `C:\Users\asaialabs\AppData\Local\hermes\Video2CRT\`（HermesFullSetup mirror 子目錄）
+- `C:\Users\<you>\Documents\Hermes\Video2CRT\`（工作目錄）
+- `C:\Users\<you>\AppData\Local\hermes\skills\video-crt-geom-libplacebo\`（skill 定義）
+- `C:\Users\<you>\AppData\Local\hermes\Video2CRT\`（HermesFullSetup mirror 子目錄）
 
 **不要碰**：
-- `C:\Users\asaialabs\opencode\workspace\opencode-full-setup\`（OpenCode CLI 工作目錄 —— 另一條 worktree）
+- `C:\Users\<you>\opencode\workspace\opencode-full-setup\`（OpenCode CLI 工作目錄 —— 另一條 worktree）
 - 任何其他 local git repo
 
 如果 Hermes 桌面 sidebar 同時列出 `Video2CRT` 和 `opencode-full-setup`，**那是兩個獨立專案**。Video2CRT agent 只處理 Video2CRT 範圍，碰到 opencode 路徑要**立刻停**並回報用戶。User clarification 2026-09-04：「**你（Video2CRT）是他（OpenCode）的，井水不犯河水**」。
@@ -219,4 +219,4 @@ Phase 1 orchestrator → 2 translation → 3 GUI 骨架 → 4 worker queue → 5
 ---
 
 最後更新：2026-09-04（v0.5.0 重新組織）
-對話交接紀念：20 個 gotcha 已固化。專案結構：方案 C + MIT License。
+對話交接紀念：30 個 gotcha 已固化。專案結構：方案 C + MIT License。

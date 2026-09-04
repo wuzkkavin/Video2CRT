@@ -45,8 +45,9 @@ YouTube URL or local video file
 | `tests/test_install_skill.py` | 57 | skill 驗證測試 |
 | `tests/test_whisper_stages.py` | 111 | 4-condition filter / watermark / prompt leakage 測試 |
 | `tests/run_all.py` | 25 | unittest discovery runner |
+| `tests/__init__.py` | 2 | tests 套件標記 |
 
-**合計 851 行**（含測試 168 行）
+**合計 832 行**（含 crt.glsl + 測試 195 行）
 
 ### 1.3 已建立但**未串接**的部分
 
@@ -285,7 +286,7 @@ class Settings:
 ## 4. 新檔案結構（規劃）
 
 ```
-C:\Users\asaialabs\Documents\Hermes\Video2CRT\
+C:\Users\<you>\Documents\Hermes\Video2CRT\
 ├── 現有檔案 (略)
 │
 ├── src/video2crt/
@@ -422,7 +423,7 @@ C:\Users\asaialabs\Documents\Hermes\Video2CRT\
 
 每次 commit 都跑：
 ```bash
-cd "C:/Users/asaialabs/Documents/Hermes/Video2CRT"
+cd "C:/Users/<you>/Documents/Hermes/Video2CRT"
 python tests/run_all.py        # ~43 unit tests
 python tests/test_orchestrator.py  # 1-2 個 e2e
 ```
