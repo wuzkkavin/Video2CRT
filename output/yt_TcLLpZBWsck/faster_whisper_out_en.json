@@ -1,0 +1,122 @@
+[
+  {
+    "start": 0.0,
+    "end": 6.32,
+    "text": "I like a look it's a turn on our car whoo-dee-dee why he don't leaky",
+    "avg_logprob": 0.43329184991764086
+  },
+  {
+    "start": 7.300000000000002,
+    "end": 7.94,
+    "text": "Sorry",
+    "avg_logprob": 0.12588204443454742
+  },
+  {
+    "start": 9.080000000000002,
+    "end": 15.62,
+    "text": "Okay, you could you he know not a cow. Oh, yeah, I'm oh, he does. Ah, gah, gah",
+    "avg_logprob": 0.48461986436612076
+  },
+  {
+    "start": 15.62,
+    "end": 16.54,
+    "text": "Sorry",
+    "avg_logprob": 0.013814032077789307
+  },
+  {
+    "start": 17.54,
+    "end": 18.18,
+    "text": "Don't know",
+    "avg_logprob": 0.3516334444284439
+  },
+  {
+    "start": 18.18,
+    "end": 22.26,
+    "text": "Oh, sorry, go on. Yeah",
+    "avg_logprob": 0.4086023520678282
+  },
+  {
+    "start": 142.26,
+    "end": 152.22,
+    "text": "你 deterioration, 你消結起的哪哪哪哪結結結的走的,你我們們麼的拍著的那些哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪,你們們們哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪哪�",
+    "avg_logprob": 0.3406532740739298
+  },
+  {
+    "start": 182.22,
+    "end": 189.86,
+    "text": "Ah a-ha a-ha a-ha a-ha...",
+    "avg_logprob": 0.4691125574452733
+  },
+  {
+    "start": 189.86,
+    "end": 190.5,
+    "text": "You...",
+    "avg_logprob": 0.004109688918106258
+  },
+  {
+    "start": 190.5,
+    "end": 192.62,
+    "text": "Everything you call me",
+    "avg_logprob": 0.1968421522033168
+  },
+  {
+    "start": 192.62,
+    "end": 193.0,
+    "text": "Even the details",
+    "avg_logprob": 0.022248235996812582
+  },
+  {
+    "start": 193.0,
+    "end": 197.22,
+    "text": "Even the details",
+    "avg_logprob": 0.5384053206071258
+  },
+  {
+    "start": 197.22,
+    "end": 199.26,
+    "text": "Don't come over",
+    "avg_logprob": 0.1738077401338766
+  },
+  {
+    "start": 199.26,
+    "end": 200.32,
+    "text": "electronics",
+    "avg_logprob": 4.29256806455669e-06
+  },
+  {
+    "start": 204.79999999999998,
+    "end": 208.58,
+    "text": "What you want",
+    "avg_logprob": 0.0633517857058905
+  },
+  {
+    "start": 209.12,
+    "end": 211.18,
+    "text": "Don't mess around",
+    "avg_logprob": 0.2653686247528337
+  },
+  {
+    "start": 211.18,
+    "end": 214.72,
+    "text": "Kimi tono nawa sanari, sanari",
+    "avg_logprob": 0.5327039230614901
+  },
+  {
+    "start": 214.72,
+    "end": 217.44,
+    "text": "Ano tanashii hibimou",
+    "avg_logprob": 0.33032696983880466
+  },
+  {
+    "start": 217.44,
+    "end": 219.4,
+    "text": "Tsutenai kakomo",
+    "avg_logprob": 0.6582993691166242
+  },
+  {
+    "start": 219.4,
+    "end": 222.1,
+    "text": "Tsubete ga kirarii",
+    "avg_logprob": 0.639476518664095
+  }
+]
