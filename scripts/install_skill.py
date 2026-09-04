@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 SKILL_NAME = "video-crt-geom-libplacebo"
-EXPECTED_GOTCHA_COUNT = 24  # Last verified at skill commit a9... on 2026-09-04. Gotchas: 0 (pre-flight) + 1-20 (main) + 21 + 22 + 23 + 24. Latest addition gotcha 23 covers GitHub 'Create Pull Request' popup behavior on sole-owner repos; gotcha 24 covers vertical letterbox in source videos (Fuji Kaze Kirari 2.35:1 case).
+EXPECTED_GOTCHA_COUNT = 25  # Last verified at skill commit a9... on 2026-09-04. Gotchas: 0 (pre-flight) + 1-20 (main) + 21 + 22 + 23 + 24 + 25. Latest addition: gotcha 25 covers source-language preservation (don't use English CC when song is in Japanese).
 SKILL_LOCAL_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "skills" / SKILL_NAME
 SKILL_REMOTE = "https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md"
 
