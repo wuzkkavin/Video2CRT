@@ -1,0 +1,12 @@
+// CRT phosphor dotmask (vertical RGB stripes, 3px period)
+void main() {
+    vec4 c = HOOK(color);
+    vec2 pos = HOOK(tex_pos);
+    vec2 size = HOOK(tex_size);
+    float x = pos.x * size.x;
+    int col = int(mod(x, 3.0));
+    float modR = (col == 0) ? 1.0 : 0.88;
+    float modG = (col == 1) ? 1.0 : 0.88;
+    float modB = (col == 2) ? 1.0 : 0.88;
+    gl_FragColor = vec4(c.r * modR, c.g * modG, c.b * modB, c.a);
+}

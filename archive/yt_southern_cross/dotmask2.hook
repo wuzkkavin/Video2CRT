@@ -1,0 +1,25 @@
+// CRT phosphor dotmask (vertical RGB stripes, 3px period)
+// Modulates each pixel's RGB channel based on its x position
+// Applied after bilinear upscaling at the final output resolution
+
+vec4 hook(vec4 color) {
+    // Get current pixel position (in output coordinates)
+    vec2 pos = HOOK(tex_pos);  // vec2 [0,1]
+    // Convert to pixel coords
+    vec2 size = HOOK(tex_size);
+    vec2 pix = pos * size;
+    // Determine column in 3-pixel period
+    int col = int(mod(pix.x, 3.0));
+    // Vertical RGB stripe pattern: col 0 = R boosted, col 1 = G boosted, col 2 = B boosted
+    // Modulate +/- 15% (gentle, preserves color)
+    float boost = 0.0;
+    if (col == 0) boost = 1.0;
+    float modR = mix(0.85, 1.0, boost);
+    boost = 0.0;
+    if (col == 1) boost = 1.0;
+    float modG = mix(0.85, 1.0, boost);
+    boost = 0.0;
+    if (col == 2) boost = 1.0;
+    float modB = mix(0.85, 1.0, boost);
+    return vec4(color.r * modR, color.g * modG, color.b * modB, color.a);
+}

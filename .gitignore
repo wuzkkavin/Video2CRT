@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+
+# Audio intermediates (regeneratable, large)
+*.wav
+*.m4a
+clip_*.wav
+audio_*.wav
+
+# Video screenshots / frames (regeneratable)
+*.jpg
+*.png
+
+# Subtitle formats other than SRT
+*.vtt
+*.ass
+
+# All binary video files (regeneratable, large)
+# final.mp4 (200-900MB), raw.mp4, source.mp4 are ALL excluded
+*.mp4
+
+# Python venv
+venv/
+.venv/
+env/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test artifacts
+.pytest_cache/
+.coverage
+
+# What we DO track:
+# - All .md files (README, LICENSE, HANDOFF, CHANGELOG, etc.)
+# - All .py files (scripts/, src/, tests/)
+# - All .glsl shader files (under scripts/ + per-video)
+# - All .srt subtitle files (with the !subtitle_exclusion above)
+# - All .json ASR outputs (.gitignore doesn't catch them explicitly)

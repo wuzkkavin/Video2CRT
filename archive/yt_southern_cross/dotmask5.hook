@@ -1,0 +1,21 @@
+//!HOOK RGB
+//!BIND HOOKED
+//!DESC CRT phosphor dotmask
+//!WIDTH 1920
+//!HEIGHT 1080
+
+vec4 hook()
+{
+    vec4 c = HOOKED_tex(HOOKED_pos);
+    // Determine column in 3-pixel period using tex_size
+    float x = HOOKED_pos.x * HOOKED_size.x;
+    int col = int(mod(x, 3.0));
+    float modR = (col == 0) ? 1.00 : 0.92;
+    float modG = (col == 1) ? 1.00 : 0.92;
+    float modB = (col == 2) ? 1.00 : 0.92;
+    // Slight vertical fall-off to mimic scanline + phosphor mask combo
+    float y = HOOKED_pos.y * HOOKED_size.y;
+    int row = int(mod(y, 3.0));
+    float vfade = (row == 1) ? 1.00 : 0.97;
+    return vec4(c.r * modR * vfade, c.g * modG * vfade, c.b * modB * vfade, c.a);
+}

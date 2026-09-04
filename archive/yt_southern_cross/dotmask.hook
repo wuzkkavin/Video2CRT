@@ -1,0 +1,30 @@
+// CRT phosphor RGB dotmask, mask_type 1 (vertical RGB stripes, 3px period)
+// Modulates RGB by +/-30% in a 3x3 tiled pattern.
+// applied per-frame at native video resolution.
+import "mpv";
+
+const int PERIOD = 3;
+const float AMPLITUDE = 0.30;
+
+// mpv .hook signature: vec4 process(vec4 color, vec2 pos, vec2 size)
+vec4 process(vec4 c, vec2 pos, vec2 size) {
+    int col = int(mod(pos.x, float(PERIOD)));
+    int row = int(mod(pos.y, float(PERIOD)));
+    // mask_type 1 = vertical RGB stripes (R/G/B repeating every 3 columns)
+    // Boost one channel per column, attenuate others
+    float boostR = (col == 0) ? 1.0 : 0.0;
+    float boostG = (col == 1) ? 1.0 : 0.0;
+    float boostB = (col == 2) ? 1.0 : 0.0;
+    // Slight vertical fade to mimic CRT phosphor scan-line
+    float vfade = 1.0 - 0.10 * abs(float(row) - 1.0);
+    float modR = mix(1.0 - AMPLITUDE, 1.0, boostR) * vfade;
+    float modG = mix(1.0 - AMPLITUDE, 1.0, boostG) * vfade;
+    float modB = mix(1.0 - AMPLITUDE, 1.0, boostB) * vfade;
+    return vec4(c.r * modR, c.g * modG, c.b * modB, c.a);
+}
+
+void main() {
+    gl_FragColor = process(HOOK(color), HOOK(tex_pos), HOOK(tex_size));
+}
+
+prereq_init_vertex("");

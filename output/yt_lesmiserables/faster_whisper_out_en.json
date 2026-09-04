@@ -1,0 +1,380 @@
+[
+  {
+    "start": 9.860000000000001,
+    "end": 19.74,
+    "text": "Do you hear the people sing? Singing the song of angry men. It is the music of the",
+    "avg_logprob": 0.9038539293946491,
+    "chars_per_sec": 8.299595141700408
+  },
+  {
+    "start": 19.74,
+    "end": 28.38,
+    "text": "people who will not be slaves again. When the beating of your heart echoes the beating",
+    "avg_logprob": 0.9763849675655365,
+    "chars_per_sec": 9.953703703703702
+  },
+  {
+    "start": 28.38,
+    "end": 36.02,
+    "text": "of the drums. There is a life about to start when tomorrow comes.",
+    "avg_logprob": 0.8912154662494476,
+    "chars_per_sec": 8.507853403141358
+  },
+  {
+    "start": 36.88,
+    "end": 43.02,
+    "text": "Will you join in our crusade? Will you be strong and stand with me?",
+    "avg_logprob": 0.8134846666029522,
+    "chars_per_sec": 10.912052117263842
+  },
+  {
+    "start": 43.6,
+    "end": 49.14,
+    "text": "Beyond the barricade, is there a world you long to see?",
+    "avg_logprob": 0.9834247908808968,
+    "chars_per_sec": 9.927797833935019
+  },
+  {
+    "start": 49.78,
+    "end": 54.14,
+    "text": "Then join in the fight that will give you the right to be free.",
+    "avg_logprob": 0.9802757629326412,
+    "chars_per_sec": 14.449541284403672
+  },
+  {
+    "start": 54.14,
+    "end": 61.46,
+    "text": "Do you hear the people sing? Sing the song of angry men.",
+    "avg_logprob": 0.8511452383051316,
+    "chars_per_sec": 7.6502732240437155
+  },
+  {
+    "start": 61.9,
+    "end": 67.62,
+    "text": "It is the music of the people who will not be saved again.",
+    "avg_logprob": 0.817912771151616,
+    "chars_per_sec": 10.13986013986013
+  },
+  {
+    "start": 67.88,
+    "end": 73.72,
+    "text": "When the beating of your heart echoes the beating of the drums.",
+    "avg_logprob": 0.9581179966529211,
+    "chars_per_sec": 10.787671232876706
+  },
+  {
+    "start": 74.04,
+    "end": 79.42,
+    "text": "There is a life about to start with tomorrow night.",
+    "avg_logprob": 0.7229922071099282,
+    "chars_per_sec": 9.479553903345733
+  },
+  {
+    "start": 79.42,
+    "end": 86.38,
+    "text": "Will you give all you can give So that the bad and the bad are lost?",
+    "avg_logprob": 0.6155981074407464,
+    "chars_per_sec": 9.770114942528744
+  },
+  {
+    "start": 86.7,
+    "end": 92.36,
+    "text": "So those poor and soft will live Will you stand up and take your chance?",
+    "avg_logprob": 0.7920935605963071,
+    "chars_per_sec": 12.72084805653711
+  },
+  {
+    "start": 93.14,
+    "end": 97.88,
+    "text": "The blood of the martyrs Will fall to the meadows of Christ",
+    "avg_logprob": 0.8066161697109541,
+    "chars_per_sec": 12.447257383966258
+  },
+  {
+    "start": 98.42,
+    "end": 104.2,
+    "text": "Do you hear the people say Sing a song for man we know?",
+    "avg_logprob": 0.8263039107506092,
+    "chars_per_sec": 9.515570934256054
+  },
+  {
+    "start": 104.2,
+    "end": 110.24,
+    "text": "This is the bluesing of a people who will not be slaves again.",
+    "avg_logprob": 0.6700304620541059,
+    "chars_per_sec": 10.26490066225167
+  },
+  {
+    "start": 110.62,
+    "end": 115.98,
+    "text": "And the beating of your heart echoes the beating of the drums.",
+    "avg_logprob": 0.8169318437576294,
+    "chars_per_sec": 11.567164179104479
+  },
+  {
+    "start": 116.52,
+    "end": 121.26,
+    "text": "There is a life around which nothing tomorrow comes.",
+    "avg_logprob": 0.7003771828280555,
+    "chars_per_sec": 10.970464135021077
+  },
+  {
+    "start": 126.96,
+    "end": 127.88,
+    "text": "Halt!",
+    "avg_logprob": 0.6396618783473969,
+    "chars_per_sec": 5.434782608695642
+  },
+  {
+    "start": 130.74,
+    "end": 131.2,
+    "text": "Drop!",
+    "avg_logprob": 0.6013871431350708,
+    "chars_per_sec": 10.869565217391788
+  },
+  {
+    "start": 136.92,
+    "end": 139.26,
+    "text": "No, no, no!",
+    "avg_logprob": 0.6761527210474014,
+    "chars_per_sec": 4.700854700854694
+  },
+  {
+    "start": 139.52,
+    "end": 139.7,
+    "text": "No!",
+    "avg_logprob": 0.3743339478969574,
+    "chars_per_sec": 16.666666666668668
+  },
+  {
+    "start": 139.9,
+    "end": 140.92,
+    "text": "He's an innocent woman!",
+    "avg_logprob": 0.9026551283895969,
+    "chars_per_sec": 22.54901960784354
+  },
+  {
+    "start": 141.48,
+    "end": 142.06,
+    "text": "Let her out!",
+    "avg_logprob": 0.6606041739384333,
+    "chars_per_sec": 20.689655172413346
+  },
+  {
+    "start": 143.6,
+    "end": 144.42,
+    "text": "Come on!",
+    "avg_logprob": 0.6808221340179443,
+    "chars_per_sec": 9.756097560975691
+  },
+  {
+    "start": 147.95999999999998,
+    "end": 149.76,
+    "text": "Watch him for the right!",
+    "avg_logprob": 0.7082311391830445,
+    "chars_per_sec": 13.333333333333249
+  },
+  {
+    "start": 155.88,
+    "end": 157.4,
+    "text": "Thank you, sir.",
+    "avg_logprob": 0.9092278877894083,
+    "chars_per_sec": 9.868421052631513
+  },
+  {
+    "start": 157.88,
+    "end": 158.36,
+    "text": "Thank you, monsieur.",
+    "avg_logprob": 0.9742058366537094,
+    "chars_per_sec": 41.66666666666509
+  },
+  {
+    "start": 159.14,
+    "end": 160.28,
+    "text": "To the barricades!",
+    "avg_logprob": 0.9219459791978201,
+    "chars_per_sec": 15.789473684210321
+  },
+  {
+    "start": 160.78,
+    "end": 161.72,
+    "text": "Leave La Proge!",
+    "avg_logprob": 0.3760073284308116,
+    "chars_per_sec": 15.957446808510676
+  },
+  {
+    "start": 167.78,
+    "end": 168.98,
+    "text": "Come on!",
+    "avg_logprob": 0.6065569221973419,
+    "chars_per_sec": 6.66666666666673
+  },
+  {
+    "start": 170.62,
+    "end": 172.28,
+    "text": "Come on, Joe!",
+    "avg_logprob": 0.34270534695436555,
+    "chars_per_sec": 7.831325301204835
+  },
+  {
+    "start": 172.94,
+    "end": 175.24,
+    "text": "Come on, get down, get down!",
+    "avg_logprob": 0.7126214827100436,
+    "chars_per_sec": 12.173913043478201
+  },
+  {
+    "start": 179.28,
+    "end": 180.8,
+    "text": "Move out, move out, move out!",
+    "avg_logprob": 0.7743660484751066,
+    "chars_per_sec": 19.078947368420923
+  },
+  {
+    "start": 182.04000000000002,
+    "end": 186.18,
+    "text": "Come on, get off your arse, it's begun.",
+    "avg_logprob": 0.6718328492715955,
+    "chars_per_sec": 9.420289855072495
+  },
+  {
+    "start": 187.44,
+    "end": 188.9,
+    "text": "I'm sorry, pal.",
+    "avg_logprob": 0.4844341967254877,
+    "chars_per_sec": 10.27397260273967
+  },
+  {
+    "start": 189.06,
+    "end": 189.18,
+    "text": "Thank you.",
+    "avg_logprob": 0.8441002070903778,
+    "chars_per_sec": 83.33333333333017
+  },
+  {
+    "start": 189.18,
+    "end": 190.52,
+    "text": "I'm sorry, I'm going to get turned.",
+    "avg_logprob": 0.3997379802998954,
+    "chars_per_sec": 26.11940298507456
+  },
+  {
+    "start": 191.06,
+    "end": 191.7,
+    "text": "Ah, sorry.",
+    "avg_logprob": 0.02467459428589791,
+    "chars_per_sec": 15.625000000000334
+  },
+  {
+    "start": 194.5,
+    "end": 197.22,
+    "text": "We need as much furniture as you can throw a dime!",
+    "avg_logprob": 0.8503093624656851,
+    "chars_per_sec": 18.382352941176478
+  },
+  {
+    "start": 197.98,
+    "end": 198.86,
+    "text": "Throw everything you have!",
+    "avg_logprob": 0.9460137486457825,
+    "chars_per_sec": 29.545454545453744
+  },
+  {
+    "start": 203.48,
+    "end": 209.16,
+    "text": "Wait! No! Wait!",
+    "avg_logprob": 0.59871906042099,
+    "chars_per_sec": 2.640845070422532
+  },
+  {
+    "start": 210.22,
+    "end": 211.04,
+    "text": "Watch yourself! Watch yourself!",
+    "avg_logprob": 0.9651969224214554,
+    "chars_per_sec": 37.8048780487808
+  },
+  {
+    "start": 215.01999999999998,
+    "end": 217.82,
+    "text": "Oh, my God!",
+    "avg_logprob": 0.7165201505025228,
+    "chars_per_sec": 3.928571428571413
+  },
+  {
+    "start": 223.07999999999998,
+    "end": 229.14,
+    "text": "I need a volunteer, someone who can find out their plan and when they will attack.",
+    "avg_logprob": 0.8976079528219998,
+    "chars_per_sec": 13.531353135313527
+  },
+  {
+    "start": 229.36,
+    "end": 238.82,
+    "text": "I can find out the truth, I know their ways, fought their wars, served my time, in the",
+    "avg_logprob": 0.9185584965679381,
+    "chars_per_sec": 9.090909090909111
+  },
+  {
+    "start": 238.82,
+    "end": 241.82,
+    "text": "days of my youth.",
+    "avg_logprob": 0.9754996448755264,
+    "chars_per_sec": 5.666666666666667
+  },
+  {
+    "start": 241.82,
+    "end": 243.58,
+    "text": "See the people unite!",
+    "avg_logprob": 0.7757787257432938,
+    "chars_per_sec": 11.93181818181805
+  },
+  {
+    "start": 244.86,
+    "end": 246.08,
+    "text": "I pray you're right.",
+    "avg_logprob": 0.9269300028681755,
+    "chars_per_sec": 16.393442622950836
+  },
+  {
+    "start": 247.2,
+    "end": 247.94,
+    "text": "Dogs will pack.",
+    "avg_logprob": 0.7685625553131104,
+    "chars_per_sec": 20.27027027027002
+  },
+  {
+    "start": 249.02,
+    "end": 250.04,
+    "text": "Please don't bite!",
+    "avg_logprob": 0.49032217760880786,
+    "chars_per_sec": 17.647058823529726
+  },
+  {
+    "start": 251.02,
+    "end": 252.6,
+    "text": "It will do what it strikes!",
+    "avg_logprob": 0.8360158900419871,
+    "chars_per_sec": 17.08860759493688
+  },
+  {
+    "start": 262.12,
+    "end": 265.76,
+    "text": "Red, the blood of angry men",
+    "avg_logprob": 0.8692141969998678,
+    "chars_per_sec": 7.417582417582445
+  },
+  {
+    "start": 265.76,
+    "end": 269.72,
+    "text": "Black, the dark of ages past",
+    "avg_logprob": 0.7091237977147102,
+    "chars_per_sec": 7.070707070707006
+  },
+  {
+    "start": 269.72,
+    "end": 280.34,
+    "text": "Red, a world about to dawn Black, the night that ends at dawn",
+    "avg_logprob": 0.871322689148096,
+    "chars_per_sec": 5.74387947269306
+  }
+]

@@ -1,0 +1,20 @@
+//!HOOK RGB
+//!BIND HOOKED
+//!DESC CRT Phosphor Dotmask (RGB vertical stripes, 3px period)
+//!WIDTH 1920
+//!HEIGHT 1080
+
+vec4 hook()
+{
+    vec4 c = HOOKED_tex(HOOKED_pos);
+    float x = HOOKED_pos.x * HOOKED_size.x;
+    int col = int(mod(x, 3.0));
+    float modR = (col == 0) ? 1.0 : 0.92;
+    float modG = (col == 1) ? 1.0 : 0.92;
+    float modB = (col == 2) ? 1.0 : 0.92;
+    // Vertical scanline-like fall-off
+    float y = HOOKED_pos.y * HOOKED_size.y;
+    int row = int(mod(y, 3.0));
+    float vfade = (row == 1) ? 1.0 : 0.96;
+    return vec4(c.r * modR * vfade, c.g * modG * vfade, c.b * modB * vfade, c.a);
+}

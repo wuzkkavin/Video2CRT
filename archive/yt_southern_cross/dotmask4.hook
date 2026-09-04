@@ -1,0 +1,14 @@
+//!HOOK MAIN
+//!BIND HOOKED
+
+vec4 hook()
+{
+    vec4 c = HOOKED_tex(HOOKED_pos);
+    // HOOKED_pos is normalized [0,1], HOOKED_size is pixel size
+    float x = HOOKED_pos.x * HOOKED_size.x;
+    int col = int(mod(x, 3.0));
+    float modR = (col == 0) ? 1.0 : 0.88;
+    float modG = (col == 1) ? 1.0 : 0.88;
+    float modB = (col == 2) ? 1.0 : 0.88;
+    return vec4(c.r * modR, c.g * modG, c.b * modB, c.a);
+}
