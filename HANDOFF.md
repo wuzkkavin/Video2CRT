@@ -4,30 +4,33 @@
 
 ## 你是新對話嗎？
 
+**這個專案的**所有** agent 必須自動跑 install_skill.py (gotcha 21)**。這是 **MANDATORY** 不允許跳過的條款 —— 因為新對話環境 state 是 fresh 的，沒驗跑直接開工會遇到 PATH 缺失 / skill 過期 / 工作目錄 reset 等問題。
+
 讀這份檔開始：
 
 1. **第一步（必做）：跑 install_skill.py 驗證環境與 skill**：
    ```bash
-   cd "C:/Users/<you>/Documents/Hermes/Video2CRT"
+   cd "C:/Users/asaialabs/Documents/Hermes/Video2CRT"
    python scripts/install_skill.py
    ```
-   **必須看到** `[ALL PASS] Skill v20 installed and dependencies OK.`，否則**不要**給用戶任何結論。
-   若 `Found N gotchas` < 20 警告 → 該 skill 不是最新版，需先 `git -C ~/AppData/Local/hermes pull` 同步 GitHub
+   **必須看到** `[ALL PASS] Skill v23 installed and dependencies OK.`，否則**不要**給用戶任何結論。
+   若 `Found N gotchas` < 23 警告 → 該 skill 不是最新版，需先 `cd %LOCALAPPDATA%/hermes && git pull` 同步 GitHub
+   **這一步不需要 5 秒以外時間，不能跳過**。
 
 2. 看 [`README.md`](README.md) — 專案總覽
 3. 看 [`docs/architecture.md`](docs/architecture.md) — 專案結構圖
-4. 看 [`docs/index.md`](docs/index.md) — 11 支影片目錄 (output/ + archive/)
+4. 看 [`docs/index.md`](docs/index.md) — 影片目錄 (output/ + archive/)
 5. 看 [`docs/workflow.md`](docs/workflow.md) — 完整工作流程（從 URL 到 final.mp4）
 6. 看 [`docs/recipes.md`](docs/recipes.md) — 場景食譜
 7. 看 [`docs/troubleshooting.md`](docs/troubleshooting.md) — 常見錯誤排除
-8. 看 [`CHANGELOG.md`](CHANGELOG.md) — 歷史紀錄 + 學到的 20 個 gotcha
+8. 看 [`CHANGELOG.md`](CHANGELOG.md) — 歷史紀錄 + 學到的 23 個 gotcha
 
 如果用戶丟新 URL 給你：
 
-1. **先跑** `python scripts/install_skill.py`，確保 [ALL PASS]
-2. **工作目錄必須是**：`C:\Users\<you>\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
+1. **立即**跑 `python scripts/install_skill.py`（**即使這對話已經跑過**, 同專案也要再跑一次 — gotcha 21)
+2. **工作目錄必須是**：`C:\Users\asaialabs\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
 3. 跑 `docs/workflow.md` 的 Stage 1-11
-4. 自動套用 skill `video-crt-geom-libplacebo` 的所有 gotcha（共 20 個）
+4. 自動套用 skill `video-crt-geom-libplacebo` 的所有 gotcha（共 **23 個**：gotcha 0 pre-flight + 1-20 main + 21 MANDATORY pre-flight + 22 MANDATORY output dir)
 5. **顯式宣告** `Found N gotchas in SKILL.md` 證明你已驗證
 6. 跑 `python tests/run_all.py`（13 tests，應全綠）
 
@@ -145,6 +148,9 @@ from video2crt.pipeline import render_raw, burn_subtitles, mux_audio
 
 ## 你接手時，**絕對不要**：
 
+0. ❌ **跳過 install_skill.py**（gotcha 21 MANDATORY）。即使對話前面已跑過、同個專案、看似環境沒變，也要再跑一次。**永遠不跳過**。
+0a. ❌ **不宣告 `Found N gotchas in SKILL.md`** 證明已驗證。每個新對話都應該在第一次回應就顯示這行。
+
 1. ❌ 砍 weird 文字像 Bullshit、Kick the hop (gotcha 17)
 2. ❌ 用 avg_logprob 當獨立過濾 (gotcha 13)
 3. ❌ 設 `initial_prompt=` 給 Whisper (gotcha 14)
@@ -153,22 +159,22 @@ from video2crt.pipeline import render_raw, burn_subtitles, mux_audio
 6. ❌ 把字幕跟 libplacebo 同一個 ffmpeg pass 跑 (gotcha 4)
 7. ❌ mux 後忘記加 `-aspect 16:9` (gotcha 3)
 8. ❌ 只看前 30 秒的字幕就說完成 (gotcha 10)
-9. ❌ 把影片放 `Downloads/`（必須是 `output/yt_*/`）
-10. ❌ 沒跑 `install_skill.py` 就開工
+9. ❌ 把影片放 `Downloads/`（必須是 `output/yt_*/`，gotcha 22）
+10. ❌ 沒跑 `install_skill.py` 就開工（gotcha 21，已重複列出，強調）
 
 ## 你接手時，**必須**：
 
-1. ✅ **先跑 `python scripts/install_skill.py`** 並看到 [ALL PASS]
-2. ✅ 工作目錄在 `Documents/Hermes/Video2CRT/output/yt_<id>/`
-3. ✅ 用 faster-whisper **medium** 作為 primary ASR
-4. ✅ 對 3+ 分鐘影片跑 chunked ASR (gotcha 16)
-5. ✅ 對 multilingual 沉默 30+ 秒段跑 medium.en fallback (gotcha 18)
-6. ✅ 視覺驗證**完整跨段**抽樣 (gotcha 10)
-7. ✅ 字幕從 0:00 開始（如果 Whisper 從 0:00 給的話）
-8. ✅ handoff.md 寫處理細節
-9. ✅ `docs/index.md` / `CHANGELOG.md` / `README.md` 隨之更新
-10. ✅ 任何新 gotcha 立即 commit + push 到 GitHub
-11. ✅ 跑 `python tests/run_all.py`，13 tests 應全綠
+0. ✅ **先跑 `python scripts/install_skill.py`** 並看到 `[ALL PASS]`（每個新對話都跑 — gotcha 21）
+1. ✅ 工作目錄在 `Documents/Hermes/Video2CRT/output/yt_<id>/` (gotcha 22)
+2. ✅ 用 faster-whisper **medium** 作為 primary ASR
+3. ✅ 對 3+ 分鐘影片跑 chunked ASR (gotcha 16)
+4. ✅ 對 multilingual 沉默 30+ 秒段跑 medium.en fallback (gotcha 18)
+5. ✅ 視覺驗證**完整跨段**抽樣 (gotcha 10)
+6. ✅ 字幕從 0:00 開始（如果 Whisper 從 0:00 給的話）
+7. ✅ handoff.md 寫處理細節
+8. ✅ `docs/index.md` / `CHANGELOG.md` / `README.md` 隨之更新
+9. ✅ 任何新 gotcha 立即 commit + push 到 GitHub
+10. ✅ 跑 `python tests/run_all.py`，13 tests 應全綠
 
 ---
 
