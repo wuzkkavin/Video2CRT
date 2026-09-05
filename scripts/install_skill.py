@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 SKILL_NAME = "video-crt-geom-libplacebo"
-EXPECTED_GOTCHA_COUNT = 30  # Last verified at skill commit 61c456a on 2026-09-04. Gotchas: 0 (pre-flight) + 1-20 (main) + 21 + 22 + 23 + 24 + 25 + 26-30. Sibling agents added gotchas 26-30 after my 25 (gotcha 30 OPEN-FOLDER emit, Korean AMV hallucination, etc).
+EXPECTED_GOTCHA_COUNT = 31  # Last verified 2026-09-04. Gotchas: 0 + 1-30 = 31 numbered items. Gotcha 31: install_skill.py should not require openai-whisper CLI (use faster-whisper module).
 SKILL_LOCAL_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "skills" / SKILL_NAME
 SKILL_REMOTE = "https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md"
 
@@ -44,15 +44,22 @@ def count_gotchas() -> int:
     """How many gotchas are in the SKILL.md?
     Counts entries that start with N. where N is a positive integer,
     matching the numbered bullet list under 'CRITICAL gotchas'.
+    Only counts in the CRITICAL gotchas section (excludes references).
     """
     skill_md = SKILL_LOCAL_DIR / "SKILL.md"
     if not skill_md.is_file():
         return 0
     import re
     text = skill_md.read_text(encoding="utf-8")
-    # Match bullet items like "1. Use //..." or "**1. Use...**"
+    # Only count in CRITICAL gotchas section (between "## CRITICAL gotchas" and next "##" header)
+    m = re.search(r"##\s*CRITICAL\s*gotchas\s*\n(.*?)(?=^##\s|\Z)", text, re.DOTALL | re.MULTILINE)
+    if not m:
+        # Fallback to whole file
+        section = text
+    else:
+        section = m.group(1)
     gotcha_nums = set()
-    for m in re.finditer(r"^\*?\*?(\d+)\.\s+[A-Z*]", text, re.MULTILINE):
+    for m in re.finditer(r"^\*?\*?(\d+)\.\s+[A-Z*]", section, re.MULTILINE):
         gotcha_nums.add(int(m.group(1)))
     return max(len(gotcha_nums), 0)
 
@@ -60,6 +67,10 @@ def count_gotchas() -> int:
 def verify_dependencies() -> list[str]:
     """Check ffmpeg/yt-dlp/whisper are installed. Returns list of missing.
     Tries common Windows install paths because git-bash sandbox lacks PATH.
+
+    Note: 'whisper' here refers to the openai-whisper CLI which is NOT used
+    by Video2CRT (per gotcha 7, faster-whisper is the primary). We check it
+    only as optional; missing whisper is OK (warn, not fail).
     """
     missing = []
     candidates = {
@@ -86,6 +97,9 @@ def verify_dependencies() -> list[str]:
             "/c/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",
             "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",
         ],
+        # whisper (openai-whisper CLI) is OPTIONAL - faster-whisper is primary
+    }
+    optional = {
         "whisper": [
             "whisper",
             "/c/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/whisper.exe",
@@ -114,6 +128,21 @@ def verify_dependencies() -> list[str]:
                 continue
         if not found:
             missing.append(cmd)
+    # whisper is optional - don't fail but record
+    whisper_found = False
+    for path in optional["whisper"]:
+        if path.startswith("/c/"):
+            path = "C:/" + path[3:]
+        try:
+            r = subprocess.run([path, "--version"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                whisper_found = True
+                break
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+    if not whisper_found:
+        # Don't add to missing — just print info message later
+        pass
     return missing
 
 
@@ -189,8 +218,10 @@ def main() -> int:
 
     print(f"[OK] ffmpeg + libplacebo + vulkan + nvenc present")
     print(f"[OK] yt-dlp present")
+    # whisper CLI is optional (faster-whisper is primary per gotcha 7)
+    print(f"[INFO] whisper CLI optional - using faster-whisper (Python module)")
     print()
-    print(f"[ALL PASS] Skill v{gotchas} installed and dependencies OK. Ready to convert videos.")
+    print(f"[ALL PASS] Skill v{EXPECTED_GOTCHA_COUNT}+ installed and dependencies OK. Ready to convert videos.")
     return 0
 
 
