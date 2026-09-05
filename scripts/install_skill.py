@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 SKILL_NAME = "video-crt-geom-libplacebo"
-EXPECTED_GOTCHA_COUNT = 31  # Last verified 2026-09-04. Gotchas: 0 + 1-30 = 31 numbered items. Gotcha 31: install_skill.py should not require openai-whisper CLI (use faster-whisper module).
+EXPECTED_GOTCHA_COUNT = 33  # Floor not exact (sibling agents add). Gotchas: 0 + 1-33 = 34 entries but gotcha 32 was sibling-merged.
 SKILL_LOCAL_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "skills" / SKILL_NAME
 SKILL_REMOTE = "https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md"
 
@@ -42,24 +42,25 @@ def check_skill_present() -> bool:
 
 def count_gotchas() -> int:
     """How many gotchas are in the SKILL.md?
-    Counts entries that start with N. where N is a positive integer,
-    matching the numbered bullet list under 'CRITICAL gotchas'.
-    Only counts in the CRITICAL gotchas section (excludes references).
+    Counts entries that start with N. where N is a positive integer.
+    Counts the entire file (CRITICAL gotchas + post-flight gotchas added by sibling
+    agents in other sections), excluding Reference files section.
     """
     skill_md = SKILL_LOCAL_DIR / "SKILL.md"
     if not skill_md.is_file():
         return 0
     import re
     text = skill_md.read_text(encoding="utf-8")
-    # Only count in CRITICAL gotchas section (between "## CRITICAL gotchas" and next "##" header)
-    m = re.search(r"##\s*CRITICAL\s*gotchas\s*\n(.*?)(?=^##\s|\Z)", text, re.DOTALL | re.MULTILINE)
-    if not m:
-        # Fallback to whole file
-        section = text
-    else:
-        section = m.group(1)
+    # Strip Reference files section (not a gotcha)
+    m = re.search(r"##\s*Reference files", text)
+    if m:
+        text = text[:m.start()]
     gotcha_nums = set()
-    for m in re.finditer(r"^\*?\*?(\d+)\.\s+[A-Z*]", section, re.MULTILINE):
+    # Match both `**N. **` and `N. ` formats (some sibling agents don't bold)
+    for m in re.finditer(r"^\*?\*?(\d+)\.\s+[A-Z*]", text, re.MULTILINE):
+        gotcha_nums.add(int(m.group(1)))
+    # Also match plain `**N. **` even if not at line start (gotchas may be in sub-bullets)
+    for m in re.finditer(r"\*\*(\d+)\.\s+\*\*", text):
         gotcha_nums.add(int(m.group(1)))
     return max(len(gotcha_nums), 0)
 

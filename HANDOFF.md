@@ -214,9 +214,26 @@ Phase 1 orchestrator → 2 translation → 3 GUI 骨架 → 4 worker queue → 5
 - `C:\Users\<you>\opencode\workspace\opencode-full-setup\`（OpenCode CLI 工作目錄 —— 另一條 worktree）
 - 任何其他 local git repo
 
+## ⚠ 顯示檔案給用戶：永遠用 MEDIA: token
+
+**User correction 2026-09-06**：以前對話可以「直接顯示影片在介面上」，這次 agent（我）剛開始說「沒有 GUI 介面、只能給路徑」，**這是錯的**！
+
+**正確做法**：
+- **永遠用 `MEDIA: <absolute path>` 寫在對話訊息中**（不是 echo 到 terminal）
+- Hermes Desktop 識別 `MEDIA:` 後自動渲染檔案預覽
+- **絕對不要說「我沒 GUI」或「只能給路徑」**——先試 MEDIA: token
+- 如果 MEDIA: 不渲染，**fallback**：`desktop_preview` 工具 `action=open` + `url=path`
+
+**範例**：
+```
+MEDIA: C:\Users\<you>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
+```
+
+**為什麼 agent 容易忘**：MEDIA: 看起來像純文字字串，agent 直覺會 echo 到 terminal。但 Hermes Desktop 是**解析 agent 對話訊息**（不是 terminal 輸出）。
+
 如果 Hermes 桌面 sidebar 同時列出 `Video2CRT` 和 `opencode-full-setup`，**那是兩個獨立專案**。Video2CRT agent 只處理 Video2CRT 範圍，碰到 opencode 路徑要**立刻停**並回報用戶。User clarification 2026-09-04：「**你（Video2CRT）是他（OpenCode）的，井水不犯河水**」。
 
 ---
 
-最後更新：2026-09-04（v0.5.0 重新組織）
-對話交接紀念：30 個 gotcha 已固化。專案結構：方案 C + MIT License。
+最後更新：2026-09-06（v0.5.0 重新組織 + MEDIA: token 規則）
+對話交接紀念：30 個 gotcha 已固化 + MEDIA: token 規則。專案結構：方案 C + MIT License。
