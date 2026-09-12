@@ -1,0 +1,950 @@
+[
+  {
+    "start": 6.04,
+    "end": 15.42,
+    "text": "Never gonna give you up, never gonna let you down, never gonna run around and desert you",
+    "avg_logprob": 0.859
+  },
+  {
+    "start": 15.42,
+    "end": 19.44,
+    "text": "We will, we will rock you",
+    "avg_logprob": 0.873
+  },
+  {
+    "start": 19.44,
+    "end": 20.0,
+    "text": "Sing it!",
+    "avg_logprob": 0.578
+  },
+  {
+    "start": 21.38,
+    "end": 25.42,
+    "text": "Oh girls just wanna have fun",
+    "avg_logprob": 0.768
+  },
+  {
+    "start": 25.42,
+    "end": 28.6,
+    "text": "Yeah, I wanna dance with somebody",
+    "avg_logprob": 0.795
+  },
+  {
+    "start": 30.2,
+    "end": 33.04,
+    "text": "With somebody who loves me",
+    "avg_logprob": 0.888
+  },
+  {
+    "start": 33.04,
+    "end": 36.18,
+    "text": "With somebody, somebody, somebody",
+    "avg_logprob": 0.702
+  },
+  {
+    "start": 36.18,
+    "end": 39.92,
+    "text": "With somebody, somebody, somebody",
+    "avg_logprob": 0.733
+  },
+  {
+    "start": 42.36,
+    "end": 44.76,
+    "text": "Look man, you can't touch this",
+    "avg_logprob": 0.763
+  },
+  {
+    "start": 45.42,
+    "end": 46.7,
+    "text": "You better get hype, boy",
+    "avg_logprob": 0.787
+  },
+  {
+    "start": 46.7,
+    "end": 48.36,
+    "text": "Cause you know you can't, you can't touch this",
+    "avg_logprob": 0.867
+  },
+  {
+    "start": 48.36,
+    "end": 49.14,
+    "text": "Jump!",
+    "avg_logprob": 0.192
+  },
+  {
+    "start": 50.8,
+    "end": 52.84,
+    "text": "Go ahead and jump",
+    "avg_logprob": 0.753
+  },
+  {
+    "start": 53.94,
+    "end": 55.26,
+    "text": "I'm a mama",
+    "avg_logprob": 0.264
+  },
+  {
+    "start": 55.26,
+    "end": 57.94,
+    "text": "My bigger, she taught her for some",
+    "avg_logprob": 0.371
+  },
+  {
+    "start": 57.94,
+    "end": 61.58,
+    "text": "My bigger, to handle their guns",
+    "avg_logprob": 0.626
+  },
+  {
+    "start": 61.58,
+    "end": 61.76,
+    "text": "My bigger, to handle their guns",
+    "avg_logprob": 0.635
+  },
+  {
+    "start": 61.76,
+    "end": 64.94,
+    "text": "Oh, we're halfway there",
+    "avg_logprob": 0.583
+  },
+  {
+    "start": 64.94,
+    "end": 68.52,
+    "text": "Oh, give me all my prayer",
+    "avg_logprob": 0.554
+  },
+  {
+    "start": 68.52,
+    "end": 68.68,
+    "text": "Oh, give me all my prayer",
+    "avg_logprob": 0.732
+  },
+  {
+    "start": 68.68,
+    "end": 70.64,
+    "text": "Alla tu cuero pa'legria, Macarena",
+    "avg_logprob": 0.624
+  },
+  {
+    "start": 70.64,
+    "end": 72.42,
+    "text": "Alla tu cuero pa'legria, Macarena",
+    "avg_logprob": 0.936
+  },
+  {
+    "start": 72.42,
+    "end": 75.2,
+    "text": "Alla tu cuero pa'legria, Macarena",
+    "avg_logprob": 0.949
+  },
+  {
+    "start": 75.2,
+    "end": 75.28,
+    "text": "Alla tu cuero pa'legria, Macarena",
+    "avg_logprob": 0.941
+  },
+  {
+    "start": 75.28,
+    "end": 77.3,
+    "text": "This is dinner",
+    "avg_logprob": 0.261
+  },
+  {
+    "start": 77.3,
+    "end": 79.48,
+    "text": "Dinner at night",
+    "avg_logprob": 0.493
+  },
+  {
+    "start": 79.48,
+    "end": 81.46,
+    "text": "And no one's gonna save them",
+    "avg_logprob": 0.737
+  },
+  {
+    "start": 81.46,
+    "end": 82.82,
+    "text": "Everybody!",
+    "avg_logprob": 0.167
+  },
+  {
+    "start": 85.4,
+    "end": 87.6,
+    "text": "Rock your body!",
+    "avg_logprob": 0.67
+  },
+  {
+    "start": 88.08,
+    "end": 92.34,
+    "text": "In the midnight now, she's got no more hope",
+    "avg_logprob": 0.518
+  },
+  {
+    "start": 93.5,
+    "end": 95.58,
+    "text": "We're the rebel, yeah",
+    "avg_logprob": 0.762
+  },
+  {
+    "start": 95.58,
+    "end": 99.3,
+    "text": "Gimme, gimme, gimme our man at midnight",
+    "avg_logprob": 0.524
+  },
+  {
+    "start": 99.3,
+    "end": 103.56,
+    "text": "Somebody help me chase this channel away",
+    "avg_logprob": 0.569
+  },
+  {
+    "start": 103.56,
+    "end": 108.94,
+    "text": "Callin' Mr. Raider, callin' Mr. Brown, callin' Mr. Bane",
+    "avg_logprob": 0.731
+  },
+  {
+    "start": 114.88,
+    "end": 123.52,
+    "text": "I'm looking for some hot stuff, baby, this evening I need some hot stuff, baby, tonight",
+    "avg_logprob": 0.841
+  },
+  {
+    "start": 123.52,
+    "end": 130.22,
+    "text": "This one's for hire, even if we're just dancing in the dark",
+    "avg_logprob": 0.826
+  },
+  {
+    "start": 130.22,
+    "end": 136.82,
+    "text": "What is love? Baby, don't hurt me, don't hurt me, no more",
+    "avg_logprob": 0.932
+  },
+  {
+    "start": 136.82,
+    "end": 143.74,
+    "text": "You, you make my dreams come true",
+    "avg_logprob": 0.649
+  },
+  {
+    "start": 143.74,
+    "end": 148.24,
+    "text": "You're a brother away, you're a mother, you're stayin' alive, stayin' alive",
+    "avg_logprob": 0.827
+  },
+  {
+    "start": 148.24,
+    "end": 151.58,
+    "text": "We're the city breakin' and everybody shakin' and we're stayin' alive",
+    "avg_logprob": 0.838
+  },
+  {
+    "start": 151.58,
+    "end": 153.56,
+    "text": "They're comin' to wreck me, I'm a dead man, stupid",
+    "avg_logprob": 0.596
+  },
+  {
+    "start": 153.56,
+    "end": 158.5,
+    "text": "I'm a dead man, I'm a dead man, I'm a dead man, I'm a dead man, I'm a dead man",
+    "avg_logprob": 0.916
+  },
+  {
+    "start": 158.5,
+    "end": 160.78,
+    "text": "Don't stop me now",
+    "avg_logprob": 0.881
+  },
+  {
+    "start": 160.78,
+    "end": 164.58,
+    "text": "I'm havin' such a good time, I'm havin' a ball",
+    "avg_logprob": 0.948
+  },
+  {
+    "start": 164.58,
+    "end": 170.82,
+    "text": "Hip Hop Hooray! Ho! Hey! Ho! Hey!",
+    "avg_logprob": 0.684
+  },
+  {
+    "start": 173.5,
+    "end": 174.12,
+    "text": "Celebration!",
+    "avg_logprob": 0.693
+  },
+  {
+    "start": 175.18,
+    "end": 178.26,
+    "text": "We go celebrate and have a good time",
+    "avg_logprob": 0.927
+  },
+  {
+    "start": 178.26,
+    "end": 179.64,
+    "text": "You're the one that I want!",
+    "avg_logprob": 0.863
+  },
+  {
+    "start": 180.26,
+    "end": 180.9,
+    "text": "Yeah, I'm the one!",
+    "avg_logprob": 0.608
+  },
+  {
+    "start": 181.18,
+    "end": 182.38,
+    "text": "Boo! Boo! Boo!",
+    "avg_logprob": 0.67
+  },
+  {
+    "start": 182.46,
+    "end": 183.66,
+    "text": "Honey, you're the one that I want!",
+    "avg_logprob": 0.954
+  },
+  {
+    "start": 184.2,
+    "end": 185.2,
+    "text": "Yeah, I'm the one!",
+    "avg_logprob": 0.842
+  },
+  {
+    "start": 185.4,
+    "end": 186.42,
+    "text": "Go! Go!",
+    "avg_logprob": 0.36
+  },
+  {
+    "start": 186.78,
+    "end": 188.72,
+    "text": "Upside, inside out",
+    "avg_logprob": 0.71
+  },
+  {
+    "start": 188.72,
+    "end": 190.88,
+    "text": "She's livin' to be thine own kind",
+    "avg_logprob": 0.78
+  },
+  {
+    "start": 190.88,
+    "end": 193.38,
+    "text": "Wake me up, before you go",
+    "avg_logprob": 0.901
+  },
+  {
+    "start": 193.38,
+    "end": 196.74,
+    "text": "Don't believe me, hangin' on like a yo-yo",
+    "avg_logprob": 0.804
+  },
+  {
+    "start": 202.38,
+    "end": 206.16,
+    "text": "Ra-Ra-Rasputin, lover of the Russian queen",
+    "avg_logprob": 0.693
+  },
+  {
+    "start": 206.16,
+    "end": 209.28,
+    "text": "There was a cat that really was gone",
+    "avg_logprob": 0.958
+  },
+  {
+    "start": 209.28,
+    "end": 210.7,
+    "text": "That's this",
+    "avg_logprob": 0.58
+  },
+  {
+    "start": 211.52,
+    "end": 215.38,
+    "text": "Put on your red shoes and dance the blues",
+    "avg_logprob": 0.925
+  },
+  {
+    "start": 219.22,
+    "end": 220.96,
+    "text": "I've got the power",
+    "avg_logprob": 0.96
+  },
+  {
+    "start": 222.8,
+    "end": 230.38,
+    "text": "That's the way, uh-huh, I like it, uh-huh, that's the way, uh-huh, I like it",
+    "avg_logprob": 0.902
+  },
+  {
+    "start": 230.38,
+    "end": 235.12,
+    "text": "I'm your Venus, I'm your fire, your desire",
+    "avg_logprob": 0.846
+  },
+  {
+    "start": 235.12,
+    "end": 241.14,
+    "text": "A little bit of Monica in my life, a little bit of Erica by my side",
+    "avg_logprob": 0.937
+  },
+  {
+    "start": 241.14,
+    "end": 248.24,
+    "text": "You're my heart, you're my soul, I keep it shining everywhere I go",
+    "avg_logprob": 0.92
+  },
+  {
+    "start": 248.24,
+    "end": 251.6,
+    "text": "It's the final countdown!",
+    "avg_logprob": 0.845
+  },
+  {
+    "start": 256.2,
+    "end": 257.82,
+    "text": "Come on, let's go!",
+    "avg_logprob": 0.668
+  },
+  {
+    "start": 259.3,
+    "end": 262.12,
+    "text": "Let your body move to the music!",
+    "avg_logprob": 0.958
+  },
+  {
+    "start": 262.46,
+    "end": 265.94,
+    "text": "You spin me right round, baby, right round",
+    "avg_logprob": 0.903
+  },
+  {
+    "start": 265.94,
+    "end": 269.2,
+    "text": "Like a record, baby, right round, round, round",
+    "avg_logprob": 0.816
+  },
+  {
+    "start": 269.2,
+    "end": 274.24,
+    "text": "She's a maniac, maniac at showdown",
+    "avg_logprob": 0.776
+  },
+  {
+    "start": 274.24,
+    "end": 281.24,
+    "text": "My girl wants to party all the time, party all the time, party all the time",
+    "avg_logprob": 0.872
+  },
+  {
+    "start": 281.76,
+    "end": 286.2,
+    "text": "Ya ya ya, Coco Jumbo, ya ya ya",
+    "avg_logprob": 0.617
+  },
+  {
+    "start": 286.2,
+    "end": 288.88,
+    "text": "Ya ya ya, Coco Jumbo",
+    "avg_logprob": 0.922
+  },
+  {
+    "start": 288.88,
+    "end": 292.22,
+    "text": "Something strange in the neighborhood",
+    "avg_logprob": 0.64
+  },
+  {
+    "start": 292.22,
+    "end": 294.68,
+    "text": "Who you gonna call?",
+    "avg_logprob": 0.713
+  },
+  {
+    "start": 295.04,
+    "end": 295.24,
+    "text": "Ghostbusters!",
+    "avg_logprob": 0.647
+  },
+  {
+    "start": 296.4,
+    "end": 299.8,
+    "text": "She's fresh, fresh, exciting",
+    "avg_logprob": 0.982
+  },
+  {
+    "start": 300.76,
+    "end": 303.88,
+    "text": "She's so exciting to me, yeah",
+    "avg_logprob": 0.958
+  },
+  {
+    "start": 303.88,
+    "end": 305.88,
+    "text": "Everybody back now!",
+    "avg_logprob": 0.244
+  },
+  {
+    "start": 311.1,
+    "end": 314.48,
+    "text": "Shot to the heart in your two days",
+    "avg_logprob": 0.653
+  },
+  {
+    "start": 314.48,
+    "end": 317.84,
+    "text": "You gave us a brand new day",
+    "avg_logprob": 0.609
+  },
+  {
+    "start": 318.8,
+    "end": 322.28,
+    "text": "I've had the time of my life",
+    "avg_logprob": 0.896
+  },
+  {
+    "start": 323.5,
+    "end": 326.12,
+    "text": "Never felt this way before",
+    "avg_logprob": 0.873
+  },
+  {
+    "start": 326.12,
+    "end": 328.46,
+    "text": "Ain't nobody so right",
+    "avg_logprob": 0.682
+  },
+  {
+    "start": 328.46,
+    "end": 329.86,
+    "text": "Nothing better than",
+    "avg_logprob": 0.661
+  },
+  {
+    "start": 329.86,
+    "end": 331.9,
+    "text": "Make me happy",
+    "avg_logprob": 0.702
+  },
+  {
+    "start": 331.9,
+    "end": 338.1,
+    "text": "Here comes the outstripe, I'm the lyrical gangsta, excuse me Mr. Officer",
+    "avg_logprob": 0.651
+  },
+  {
+    "start": 338.1,
+    "end": 345.18,
+    "text": "I love rock'n'roll, sweet love, I'm in the chipmunk, baby, I love rock'n'roll",
+    "avg_logprob": 0.66
+  },
+  {
+    "start": 345.18,
+    "end": 351.74,
+    "text": "When I'm in the dancing, it's a source of anger, you can feel it everywhere",
+    "avg_logprob": 0.59
+  },
+  {
+    "start": 351.74,
+    "end": 359.72,
+    "text": "Don't blame it on sunshine, don't blame it on moonlight, don't blame it on good times, blame it on a boogie",
+    "avg_logprob": 0.869
+  },
+  {
+    "start": 359.72,
+    "end": 366.8,
+    "text": "I'm a bobby girl, in the bobby world, at these last weeks, I'm dancing",
+    "avg_logprob": 0.733
+  },
+  {
+    "start": 366.8,
+    "end": 372.82,
+    "text": "Oh, you to me are everything, the sweetest song that I could sing, oh baby",
+    "avg_logprob": 0.866
+  },
+  {
+    "start": 372.82,
+    "end": 377.9,
+    "text": "When farmer, you know say that I'm a snowman, I've got land, I like it boom boom down",
+    "avg_logprob": 0.624
+  },
+  {
+    "start": 377.9,
+    "end": 379.56,
+    "text": "Take that money, I say say that I'm a snowman, say",
+    "avg_logprob": 0.657
+  },
+  {
+    "start": 379.56,
+    "end": 387.66,
+    "text": "Oh no not I, I will survive, oh as long as I know how to survive, I know I'll still lie",
+    "avg_logprob": 0.783
+  },
+  {
+    "start": 387.66,
+    "end": 390.3,
+    "text": "I'm blue, I'm a beat, I'm a light",
+    "avg_logprob": 0.598
+  },
+  {
+    "start": 390.3,
+    "end": 397.82,
+    "text": "I like to move it, move it",
+    "avg_logprob": 0.819
+  },
+  {
+    "start": 399.42,
+    "end": 403.32,
+    "text": "Yes we were born, given duty for him",
+    "avg_logprob": 0.462
+  },
+  {
+    "start": 403.32,
+    "end": 406.6,
+    "text": "Born to be alive, born to be alive",
+    "avg_logprob": 0.773
+  },
+  {
+    "start": 406.6,
+    "end": 408.52,
+    "text": "P-push it real good",
+    "avg_logprob": 0.689
+  },
+  {
+    "start": 413.5,
+    "end": 421.74,
+    "text": "You are the dancing queen, young and sweet, only seventeen",
+    "avg_logprob": 0.814
+  },
+  {
+    "start": 421.74,
+    "end": 427.44,
+    "text": "Oh yeah, back in the summer of 69",
+    "avg_logprob": 0.751
+  },
+  {
+    "start": 427.44,
+    "end": 433.44,
+    "text": "I got five on it, it's got me stuck and I'm so bad",
+    "avg_logprob": 0.657
+  },
+  {
+    "start": 433.44,
+    "end": 435.66,
+    "text": "I got five on it",
+    "avg_logprob": 0.916
+  },
+  {
+    "start": 435.66,
+    "end": 442.52,
+    "text": "Vamos a la playa, oh, oh, oh Vamos a la playa, oh, oh, oh",
+    "avg_logprob": 0.867
+  },
+  {
+    "start": 442.52,
+    "end": 447.78,
+    "text": "Open up my eyes for the sign Open up my eyes for the sign",
+    "avg_logprob": 0.724
+  },
+  {
+    "start": 447.78,
+    "end": 455.3,
+    "text": "Don't stop believing Hold on to that feeling",
+    "avg_logprob": 0.861
+  },
+  {
+    "start": 455.3,
+    "end": 460.6,
+    "text": "Everybody's taking the chance And save the dance",
+    "avg_logprob": 0.795
+  },
+  {
+    "start": 460.6,
+    "end": 467.66,
+    "text": "And I've been scatting at you. I've been very long time ago. Where did you come from? Where did you go? Where did you come from? Scatting at you.",
+    "avg_logprob": 0.849
+  },
+  {
+    "start": 468.06,
+    "end": 470.92,
+    "text": "Do you believe in life after love?",
+    "avg_logprob": 0.917
+  },
+  {
+    "start": 474.64,
+    "end": 479.04,
+    "text": "Change in love. Change in love.",
+    "avg_logprob": 0.797
+  },
+  {
+    "start": 479.5,
+    "end": 485.54,
+    "text": "I was made for loving you, baby. You were made for loving me.",
+    "avg_logprob": 0.968
+  },
+  {
+    "start": 485.54,
+    "end": 492.8,
+    "text": "Ice, ice, weenie, ice, ice, weenie",
+    "avg_logprob": 0.637
+  },
+  {
+    "start": 492.8,
+    "end": 499.24,
+    "text": "I just want your hands to return in your kiss",
+    "avg_logprob": 0.675
+  },
+  {
+    "start": 499.24,
+    "end": 505.88,
+    "text": "Give me a sign, hit me baby one more time",
+    "avg_logprob": 0.891
+  },
+  {
+    "start": 505.88,
+    "end": 510.32,
+    "text": "All right, all my boy, I'm ready, ready, ready",
+    "avg_logprob": 0.586
+  },
+  {
+    "start": 510.32,
+    "end": 513.5,
+    "text": "Raise your little thing all over the floor",
+    "avg_logprob": 0.758
+  },
+  {
+    "start": 513.5,
+    "end": 518.86,
+    "text": "Para bailar la bamba se necesita con una poca de gracia",
+    "avg_logprob": 0.7
+  },
+  {
+    "start": 518.86,
+    "end": 523.3,
+    "text": "I'm kinda buzzed and it's all because this is how we do it",
+    "avg_logprob": 0.716
+  },
+  {
+    "start": 523.3,
+    "end": 526.2,
+    "text": "South Central doesn't like nobody's a",
+    "avg_logprob": 0.721
+  },
+  {
+    "start": 526.2,
+    "end": 531.28,
+    "text": "Oh, too young, she's my oh, too young",
+    "avg_logprob": 0.553
+  },
+  {
+    "start": 531.28,
+    "end": 538.78,
+    "text": "Oh, hey, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh, oh",
+    "avg_logprob": 0.874
+  },
+  {
+    "start": 538.78,
+    "end": 545.44,
+    "text": "I'm too sexy for my car, too sexy for my car, too sexy by far",
+    "avg_logprob": 0.943
+  },
+  {
+    "start": 545.44,
+    "end": 549.7,
+    "text": "Take on me",
+    "avg_logprob": 0.659
+  },
+  {
+    "start": 551.02,
+    "end": 556.74,
+    "text": "You should be all night long",
+    "avg_logprob": 0.649
+  },
+  {
+    "start": 556.74,
+    "end": 560.48,
+    "text": "It's fun to stay at the YMCA",
+    "avg_logprob": 0.898
+  },
+  {
+    "start": 560.48,
+    "end": 564.7,
+    "text": "It's fun to stay in the fire, in the CNA",
+    "avg_logprob": 0.757
+  },
+  {
+    "start": 564.7,
+    "end": 568.56,
+    "text": "How will I know if he really loves me?",
+    "avg_logprob": 0.867
+  },
+  {
+    "start": 569.14,
+    "end": 572.52,
+    "text": "I say a prayer with every heartbeat",
+    "avg_logprob": 0.883
+  },
+  {
+    "start": 572.52,
+    "end": 575.38,
+    "text": "But the biggest kick I ever got",
+    "avg_logprob": 0.95
+  },
+  {
+    "start": 575.38,
+    "end": 578.6,
+    "text": "Was done a thing called the crocodile rock",
+    "avg_logprob": 0.819
+  },
+  {
+    "start": 578.6,
+    "end": 580.48,
+    "text": "It's raining man!",
+    "avg_logprob": 0.606
+  },
+  {
+    "start": 581.14,
+    "end": 583.78,
+    "text": "Hallelujah, it's raining man!",
+    "avg_logprob": 0.915
+  },
+  {
+    "start": 583.78,
+    "end": 591.04,
+    "text": "I feel love, I feel love, I feel love, I feel love, I feel love",
+    "avg_logprob": 0.838
+  },
+  {
+    "start": 591.04,
+    "end": 597.98,
+    "text": "Video killed the radio star, video killed the radio star",
+    "avg_logprob": 0.905
+  },
+  {
+    "start": 597.98,
+    "end": 603.84,
+    "text": "I'm so excited and I just can't hide it, no, no, no, no, no",
+    "avg_logprob": 0.932
+  },
+  {
+    "start": 603.84,
+    "end": 609.18,
+    "text": "Whoop that ass, whoop that ass, whoop that ass",
+    "avg_logprob": 0.781
+  },
+  {
+    "start": 609.18,
+    "end": 615.42,
+    "text": "If I'm in line out, I can feel your power, just like a bell",
+    "avg_logprob": 0.679
+  },
+  {
+    "start": 615.42,
+    "end": 618.1,
+    "text": "It's such a god-fuck-pressure",
+    "avg_logprob": 0.632
+  },
+  {
+    "start": 619.06,
+    "end": 622.5,
+    "text": "It's such a sweet decision",
+    "avg_logprob": 0.706
+  },
+  {
+    "start": 622.5,
+    "end": 626.12,
+    "text": "Now I gotta cut loose, put loose",
+    "avg_logprob": 0.652
+  },
+  {
+    "start": 626.12,
+    "end": 628.26,
+    "text": "Kick off my leather shoes",
+    "avg_logprob": 0.481
+  },
+  {
+    "start": 628.26,
+    "end": 630.94,
+    "text": "I can't go down, but I can't forget",
+    "avg_logprob": 0.696
+  },
+  {
+    "start": 630.94,
+    "end": 634.38,
+    "text": "Take out the door to keep me down, I can't go down",
+    "avg_logprob": 0.69
+  },
+  {
+    "start": 634.38,
+    "end": 636.38,
+    "text": "M-m-m-my Sharonda",
+    "avg_logprob": 0.471
+  },
+  {
+    "start": 637.06,
+    "end": 639.56,
+    "text": "M-m-m-my Sharonda",
+    "avg_logprob": 0.863
+  },
+  {
+    "start": 639.56,
+    "end": 644.18,
+    "text": "So tonight I'm gonna party like it's 1999",
+    "avg_logprob": 0.809
+  },
+  {
+    "start": 645.1,
+    "end": 646.84,
+    "text": "Oh w-wow",
+    "avg_logprob": 0.305
+  },
+  {
+    "start": 647.62,
+    "end": 649.36,
+    "text": "He's the greatest dancer",
+    "avg_logprob": 0.869
+  },
+  {
+    "start": 649.36,
+    "end": 650.82,
+    "text": "Oh w-wow",
+    "avg_logprob": 0.885
+  },
+  {
+    "start": 650.82,
+    "end": 652.48,
+    "text": "That I've ever seen",
+    "avg_logprob": 0.66
+  },
+  {
+    "start": 652.48,
+    "end": 655.5,
+    "text": "Vital years happen to me",
+    "avg_logprob": 0.629
+  },
+  {
+    "start": 655.5,
+    "end": 657.48,
+    "text": "Right in front of my face",
+    "avg_logprob": 0.91
+  },
+  {
+    "start": 657.48,
+    "end": 659.88,
+    "text": "my feelings can't describe it",
+    "avg_logprob": 0.811
+  },
+  {
+    "start": 659.88,
+    "end": 661.28,
+    "text": "What I feel",
+    "avg_logprob": 0.587
+  },
+  {
+    "start": 665.5,
+    "end": 672.56,
+    "text": "Love Shack is a little old place where we can get together.",
+    "avg_logprob": 0.814
+  }
+]
