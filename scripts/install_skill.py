@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 SKILL_NAME = "video-crt-geom-libplacebo"
-EXPECTED_GOTCHA_COUNT = 33  # Floor not exact (sibling agents add). Gotchas: 0 + 1-33 = 34 entries but gotcha 32 was sibling-merged.
+EXPECTED_GOTCHA_COUNT = 36  # gotcha 35 (ffmpeg filter Windows path colon) + gotcha 36 (empty SRT fallback) added 2026-09-13  # Floor not exact (sibling agents add). Gotchas: 0 + 1-33 = 34 entries but gotcha 32 was sibling-merged.
 SKILL_LOCAL_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "skills" / SKILL_NAME
 SKILL_REMOTE = "https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md"
 

@@ -505,23 +505,32 @@ async fn cropdetect(source: &Path) -> Result<String> {
 }
 
 /// Stage 3: render the CRT shader via ffmpeg + libplacebo (gpu) and encode
-/// raw.mp4 (no audio).
+/// raw.mp4 (no audio). Follows gotcha 1/2/6/24/34.
+///
+/// IMPORTANT: libplacebo parses `:` as the option separator inside its
+/// filter expression, so an absolute Windows path like `C:\...\crt.glsl`
+/// breaks the parser. Always cd into the output directory and pass the
+/// shader as a relative file name (`crt.glsl`).
 async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
     let ffmpeg = locate_ffmpeg().await?;
-    let shader_path = raw_out.parent().unwrap().join("crt.glsl");
+    let outdir = raw_out
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("raw_out has no parent dir"))?;
+    let shader_path = outdir.join("crt.glsl");
     let shader_text = match std::fs::read_to_string("../scripts/crt.glsl") {
         Ok(s) => s,
         Err(_) => include_str!("../../scripts/crt.glsl").to_string(),
     };
     std::fs::write(&shader_path, &shader_text)?;
     let vf = format!(
-        "crop={crop},libplacebo=custom_shader_path={}:w=1920:h=1080:fps=30:force_original_aspect_ratio=0",
-        shader_path.to_string_lossy().replace('\\', "/")
+        "crop={crop},libplacebo=custom_shader_path=crt.glsl:w=1920:h=1080:fps=30:force_original_aspect_ratio=0"
     );
     let status = Command::new(ffmpeg)
         .arg("-y")
         .arg("-hwaccel")
         .arg("cuda")
+        .arg("-c:v")
+        .arg("vp9_cuvid")
         .arg("-i")
         .arg(source)
         .arg("-vf")
@@ -536,6 +545,7 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
         .arg("-pix_fmt")
         .arg("yuv420p")
         .arg(raw_out)
+        .current_dir(outdir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()

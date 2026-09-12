@@ -59,7 +59,48 @@ from video2crt.subtitle import (  # noqa: E402
     is_skip,
     is_yt_watermark,
 )
-from video2crt.pipeline import burn_subtitles, mux_audio  # noqa: E402
+# NOTE: We deliberately do NOT import `burn_subtitles` / `mux_audio` from
+# `video2crt.pipeline` because both inline absolute Windows paths into
+# ffmpeg filter expressions, which breaks the libass filter parser on
+# `C:\...` paths. Use the `*_local` wrappers below instead.
+
+
+# --- local wrappers for burn/mux with cwd-relative paths --------------
+# `video2crt.pipeline.burn_subtitles` inlines the SRT path into the
+# libass filter expression (`subtitles=<path>:force_style=...`). When the
+# path is a Windows absolute (`C:\Users\...`), the embedded colon breaks
+# the filter parser — ffmpeg treats the path as the value of an unknown
+# option ("original_size"). Same gotcha as Stage 3 (libplacebo shader
+# path). Workaround: cd into output_dir and pass a plain relative name.
+def burn_subtitles_local(raw: Path, srt: Path, subtitled: Path, cwd_dir: Path) -> Path:
+    force_style = (
+        "FontName=Microsoft JhengHei,FontSize=24,"
+        "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
+        "BorderStyle=1,Outline=2,Shadow=0,MarginV=10"
+    )
+    cmd = [
+        "ffmpeg", "-y", "-i", "raw.mp4",
+        "-vf", f"subtitles=zh-Hant.srt:force_style='{force_style}'",
+        "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23",
+        "-pix_fmt", "yuv420p", "-an", "subtitled.mp4",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd_dir), timeout=300)
+    if proc.returncode != 0:
+        raise RuntimeError(f"subtitle burn failed: {proc.stderr}")
+    return subtitled
+
+
+def mux_audio_local(subtitled: Path, source: Path, final: Path, cwd_dir: Path) -> Path:
+    cmd = [
+        "ffmpeg", "-y", "-i", "subtitled.mp4", "-i", "source.mp4",
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+        "-aspect", "16:9", "-shortest", "final.mp4",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd_dir), timeout=120)
+    if proc.returncode != 0:
+        raise RuntimeError(f"mux failed: {proc.stderr}")
+    return final
 
 
 # --- sidecar I/O helpers -----------------------------------------------------
@@ -430,21 +471,33 @@ def run(args: dict[str, Any]) -> int:
     )
     srt_path = output_dir / "zh-Hant.srt"
     srt_path.write_text(srt_text, encoding="utf-8")
-    entry_count = sum(1 for line in srt_text.splitlines() if line.strip() and "-->" not in line and not line[0].isdigit() and line != "")
-    # Recount properly by splitting on double newlines:
     blocks = [b for b in srt_text.split("\n\n") if b.strip()]
     emit("srt", 0.50, f"SRT written: {len(blocks)} entries to {srt_path.name}")
 
     # ---- Stage 6 burn + mux (gotcha 4: subtitles separate from libplacebo) -
-    emit("burn", 0.05, "burning subtitles onto raw.mp4 (h264_nvenc, libass)")
     subtitled_mp4 = output_dir / "subtitled.mp4"
-    burn_subtitles(raw_mp4, srt_path, subtitled_mp4)
-    emit("burn", 0.55, "subtitle burn complete")
-
-    emit("mux", 0.05, "muxing audio with -aspect 16:9 (gotcha 3)")
-    final_mp4 = output_dir / "final.mp4"
-    mux_audio(subtitled_mp4, source_mp4, final_mp4)
-    emit("mux", 0.55, "mux complete")
+    if blocks:
+        emit("burn", 0.05, "burning subtitles onto raw.mp4 (h264_nvenc, libass)")
+        burn_subtitles_local(raw_mp4, srt_path, subtitled_mp4, output_dir)
+        emit("burn", 0.55, "subtitle burn complete")
+        emit("mux", 0.05, "muxing audio with -aspect 16:9 (gotcha 3)")
+        final_mp4 = output_dir / "final.mp4"
+        mux_audio_local(subtitled_mp4, source_mp4, final_mp4, output_dir)
+        emit("mux", 0.55, "mux complete")
+    else:
+        # Empty SRT (no translatable ASR survived filters, or local dict has no
+        # matches and cloud translation is off). Skip burn/mux and use raw.mp4
+        # as the final output — we still want a deliverable.
+        emit("burn", 0.05, "no SRT entries to burn; using raw.mp4 as final")
+        final_mp4 = output_dir / "final.mp4"
+        # Best-effort: mux audio into raw.mp4 with -aspect 16:9.
+        try:
+            mux_audio_local(raw_mp4, source_mp4, final_mp4, output_dir)
+        except RuntimeError:
+            # If mux also fails (e.g. no audio in source), fall back to copy.
+            import shutil as _sh
+            _sh.copyfile(raw_mp4, final_mp4)
+        emit("mux", 0.55, "mux complete (raw fallback)")
 
     # ---- Hand-off note for the React UI ----------------------------------
     handoff_path = output_dir / "handoff.md"
