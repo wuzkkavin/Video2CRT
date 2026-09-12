@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Video2CRT",
+  "version": "0.1.0",
+  "identifier": "com.video2crt.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "Video2CRT",
+        "width": 720,
+        "height": 560,
+        "minWidth": 600,
+        "minHeight": 480,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser"
+      }
+    },
+    "resources": [],
+    "category": "Utility",
+    "shortDescription": "CRT phosphor-style YouTube to MP4",
+    "longDescription": "Video2CRT converts YouTube videos to 1920x1080 CRT-style MP4 with bilingual subtitles via faster-whisper ASR."
+  }
+}

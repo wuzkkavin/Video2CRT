@@ -1,0 +1,565 @@
+//! Pipeline orchestrator: drives the 6-stage CRT conversion.
+//!
+//! Stages (per HANDOFF-newtask-app.md):
+//! 1. yt-dlp download (10%)
+//! 2. cropdetect black-bar detection (5%)
+//! 3. libplacebo CRT shader encode (50%)
+//! 4. faster-whisper ASR via Python sidecar (20%)
+//! 5. SRT burn (10%)
+//! 6. mux audio + -aspect 16:9 (5%)
+//!
+//! Implemented as a tokio task spawned per `start_job` invocation.
+//! Progress is emitted via `pipeline://progress` events carrying
+//! `{ videoId, stage, progress (0.0..=1.0), message, logLine }`.
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::process::Command;
+use tokio::sync::Mutex;
+
+use crate::StartJobRequest;
+
+/// Token returned to the React UI when a job is kicked off.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobHandle {
+    pub video_id: String,
+    pub output_dir: String,
+}
+
+/// Pipeline state, tracked by `JobRegistry` so cancellation works
+/// across stages.
+#[derive(Default)]
+pub struct JobRegistry {
+    inner: Arc<Mutex<HashMap<String, Arc<Mutex<bool>>>>>,
+}
+
+impl JobRegistry {
+    pub async fn register(&self, video_id: &str) -> Arc<Mutex<bool>> {
+        let flag = Arc::new(Mutex::new(false));
+        self.inner
+            .lock()
+            .await
+            .insert(video_id.to_string(), flag.clone());
+        flag
+    }
+    pub async fn cancel(&self, video_id: &str) {
+        if let Some(flag) = self.inner.lock().await.get(video_id).cloned() {
+            *flag.lock().await = true;
+        }
+    }
+    pub async fn remove(&self, video_id: &str) {
+        self.inner.lock().await.remove(video_id);
+    }
+}
+
+/// One progress frame sent to the React UI.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressEvent {
+    pub video_id: String,
+    pub stage: String,
+    /// 0.0..=1.0 — overall job progress.
+    pub progress: f32,
+    pub message: String,
+    /// Optional incremental log line.
+    pub log_line: Option<String>,
+}
+
+/// Per-stage weight (matches HANDOFF percentages).
+fn stage_weight(stage: &str) -> f32 {
+    match stage {
+        "download" => 0.10,
+        "cropdetect" => 0.05,
+        "render" => 0.50,
+        "asr" => 0.20,
+        "burn" => 0.05,
+        "mux" => 0.05,
+        _ => 0.0,
+    }
+}
+
+/// Cumulative weights so we can compute overall `progress` from the active
+/// stage and its intra-stage fraction.
+fn cumulative(stage: &str) -> f32 {
+    let order = ["download", "cropdetect", "render", "asr", "burn", "mux"];
+    let mut acc = 0.0_f32;
+    for s in order {
+        if s == stage {
+            return acc;
+        }
+        acc += stage_weight(s);
+    }
+    acc
+}
+
+/// Resolve the project root: prefer request override, fall back to
+/// `~/Documents/Hermes/Video2CRT` per HANDOFF-newtask-app.md.
+pub fn resolve_project_root(req: &StartJobRequest) -> PathBuf {
+    if let Some(p) = &req.project_root {
+        return PathBuf::from(p);
+    }
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| "C:\\Users\\Public".to_string());
+    PathBuf::from(home)
+        .join("Documents")
+        .join("Hermes")
+        .join("Video2CRT")
+}
+
+/// Kick off the orchestrator. Returns immediately with the new job handle.
+pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
+    let project_root = resolve_project_root(&req);
+    if !project_root.exists() {
+        anyhow::bail!("Project root does not exist: {}", project_root.display());
+    }
+
+    let video_id = derive_video_id(&req.url);
+    let output_dir = project_root.join("output").join(format!("yt_{video_id}"));
+    std::fs::create_dir_all(&output_dir)
+        .with_context(|| format!("creating {}", output_dir.display()))?;
+
+    let registry = app.state::<JobRegistry>();
+    let cancel_flag = registry.register(&video_id).await;
+
+    let handle = JobHandle {
+        video_id: video_id.clone(),
+        output_dir: output_dir.to_string_lossy().to_string(),
+    };
+
+    // Clone everything we need for the spawned task before any `move`.
+    let app_for_task = app.clone();
+    let req_for_task = req.clone();
+    let handle_for_task = handle.clone();
+    tokio::spawn(async move {
+        let result = run_pipeline(app_for_task.clone(), req_for_task, handle_for_task, cancel_flag).await;
+        // Always remove from registry when done, regardless of outcome.
+        let reg = app_for_task.state::<JobRegistry>();
+        reg.remove(&video_id).await;
+        if let Err(e) = result {
+            let _ = app_for_task.emit(
+                "pipeline://error",
+                serde_json::json!({
+                    "videoId": video_id,
+                    "message": e.to_string(),
+                }),
+            );
+        }
+    });
+
+    Ok(handle)
+}
+
+/// Cancellation entry point: marks the job's cancel flag.
+pub async fn cancel(app: &AppHandle, video_id: &str) -> Result<()> {
+    let registry = app.state::<JobRegistry>();
+    registry.cancel(video_id).await;
+    Ok(())
+}
+
+/// Top-level pipeline driver.
+async fn run_pipeline(
+    app: AppHandle,
+    req: StartJobRequest,
+    handle: JobHandle,
+    cancel_flag: Arc<Mutex<bool>>,
+) -> Result<()> {
+    emit_progress(&app, &handle.video_id, "init", 0.0, "starting pipeline", None);
+
+    check_cancel(&cancel_flag).await?;
+
+    // Stage 1: yt-dlp download
+    stage_begin(&app, &handle, "download", "downloading from YouTube via yt-dlp");
+    if let Err(e) = download_with_ytdlp(&req.url, Path::new(&handle.output_dir)).await {
+        stage_error(&app, &handle, "download", &e);
+        return Err(e);
+    }
+    stage_done(&app, &handle, "download");
+
+    // Stage 2: cropdetect (informational; user override wins)
+    stage_begin(
+        &app,
+        &handle,
+        "cropdetect",
+        "scanning for pillarbox/letterbox bars",
+    );
+    let source = PathBuf::from(&handle.output_dir).join("source.mp4");
+    let _ = cropdetect(&source).await; // hint only
+    let crop_value = req
+        .crop
+        .clone()
+        .unwrap_or_else(|| "960:720:160:0".to_string());
+    stage_done(&app, &handle, "cropdetect");
+
+    // Stage 3: libplacebo CRT render
+    stage_begin(&app, &handle, "render", "libplacebo CRT shader encoding");
+    let raw = PathBuf::from(&handle.output_dir).join("raw.mp4");
+    if let Err(e) = render_crt(&source, &raw, &crop_value).await {
+        stage_error(&app, &handle, "render", &e);
+        return Err(e);
+    }
+    stage_done(&app, &handle, "render");
+
+    // Stage 4-6: faster-whisper + SRT + burn + mux — delegated to the
+    // Python sidecar `pipeline_cli.py` (kept here as a separate process so
+    // we don't have to maintain a Rust ASR binding).
+    stage_begin(&app, &handle, "asr", "running faster-whisper via Python sidecar");
+    let sidecar = locate_sidecar();
+    let payload = serde_json::json!({
+        "url": req.url,
+        "outputDir": handle.output_dir,
+        "videoId": handle.video_id,
+        "crop": crop_value,
+        "asrLanguage": req.asr_language,
+        "cloudTranslation": req.cloud_translation,
+        "translationModel": req.translation_model,
+    });
+    let payload_str = serde_json::to_string(&payload)?;
+    match sidecar {
+        Ok(path) => {
+            if let Err(e) = run_sidecar(&app, &handle, &path, &payload_str, &cancel_flag).await {
+                stage_error(&app, &handle, "asr", &e);
+                return Err(e);
+            }
+        }
+        Err(e) => {
+            stage_error(&app, &handle, "asr", &e);
+            return Err(e);
+        }
+    }
+    // sidecar emits its own asr/burn/mux progress; mark them done in series.
+    stage_done(&app, &handle, "asr");
+    stage_begin(&app, &handle, "burn", "burning subtitles");
+    stage_done(&app, &handle, "burn");
+    stage_begin(&app, &handle, "mux", "muxing audio + -aspect 16:9");
+    stage_done(&app, &handle, "mux");
+
+    emit_progress(
+        &app,
+        &handle.video_id,
+        "done",
+        1.0,
+        "pipeline complete",
+        None,
+    );
+
+    let _ = app.emit(
+        "pipeline://done",
+        serde_json::json!({
+            "videoId": handle.video_id,
+            "outputDir": handle.output_dir,
+            "finalMp4": format!("{}\\final.mp4", handle.output_dir),
+            "srt": format!("{}\\zh-Hant.srt", handle.output_dir),
+        }),
+    );
+    Ok(())
+}
+
+/// Spawn the Python sidecar and stream its stdout as progress events.
+async fn run_sidecar(
+    app: &AppHandle,
+    handle: &JobHandle,
+    py_script: &Path,
+    payload: &str,
+    cancel_flag: &Arc<Mutex<bool>>,
+) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let mut child = Command::new("python")
+        .arg(py_script)
+        .arg(payload)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stdout from sidecar"))?;
+    let mut reader = BufReader::new(stdout).lines();
+    while let Some(line) = reader.next_line().await? {
+        // Cancel check.
+        if *cancel_flag.lock().await {
+            let _ = child.kill().await;
+            anyhow::bail!("cancelled by user");
+        }
+        // The sidecar emits JSON lines: PROGRESS {...}, DONE {...}, ERROR {...}.
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("PROGRESS ") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(rest) {
+                let stage = v.get("stage").and_then(|s| s.as_str()).unwrap_or("asr");
+                let intra = v.get("progress").and_then(|p| p.as_f64()).unwrap_or(0.0) as f32;
+                let msg = v
+                    .get("message")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let overall = cumulative(stage) + intra * stage_weight(stage);
+                emit_progress(app, &handle.video_id, stage, overall, &msg, None);
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("DONE ") {
+            // Sidecar reports completion inside the same line stream; we
+            // parse it but our outer driver has already accounted for asr/
+            // burn/mux weights via the intra-progress events above.
+            let _ = rest;
+        } else if let Some(rest) = trimmed.strip_prefix("ERROR ") {
+            anyhow::bail!("sidecar error: {}", rest);
+        } else {
+            // Treat as plain log.
+            emit_progress(
+                app,
+                &handle.video_id,
+                "asr",
+                cumulative("asr"),
+                "sidecar log",
+                Some(trimmed),
+            );
+        }
+    }
+    let status = child.wait().await?;
+    if !status.success() {
+        anyhow::bail!("sidecar exited with {status:?}");
+    }
+    Ok(())
+}
+
+/// Find the bundled Python sidecar script.
+fn locate_sidecar() -> Result<PathBuf> {
+    // 1. Repo-relative: src-tauri/bin/pipeline_cli.py
+    let candidates = [
+        "src-tauri/bin/pipeline_cli.py",
+        "../src-tauri/bin/pipeline_cli.py",
+        "bin/pipeline_cli.py",
+    ];
+    for c in candidates {
+        let p = PathBuf::from(c);
+        if p.exists() {
+            return Ok(p.canonicalize().unwrap_or(p));
+        }
+    }
+    anyhow::bail!("pipeline_cli.py not found")
+}
+
+async fn check_cancel(flag: &Arc<Mutex<bool>>) -> Result<()> {
+    if *flag.lock().await {
+        anyhow::bail!("cancelled by user");
+    }
+    Ok(())
+}
+
+fn stage_begin(app: &AppHandle, handle: &JobHandle, stage: &str, message: &str) {
+    emit_progress(
+        app,
+        &handle.video_id,
+        stage,
+        cumulative(stage),
+        message,
+        None,
+    );
+}
+
+fn stage_done(app: &AppHandle, handle: &JobHandle, stage: &str) {
+    emit_progress(
+        app,
+        &handle.video_id,
+        stage,
+        cumulative(stage) + stage_weight(stage),
+        &format!("{stage} complete"),
+        None,
+    );
+}
+
+fn stage_error(app: &AppHandle, handle: &JobHandle, stage: &str, e: &anyhow::Error) {
+    emit_progress(
+        app,
+        &handle.video_id,
+        stage,
+        cumulative(stage),
+        &format!("{stage} failed: {e}"),
+        Some(&e.to_string()),
+    );
+}
+
+fn emit_progress(
+    app: &AppHandle,
+    video_id: &str,
+    stage: &str,
+    progress: f32,
+    message: &str,
+    log_line: Option<&str>,
+) {
+    let _ = app.emit(
+        "pipeline://progress",
+        ProgressEvent {
+            video_id: video_id.to_string(),
+            stage: stage.to_string(),
+            progress,
+            message: message.to_string(),
+            log_line: log_line.map(|s| s.to_string()),
+        },
+    );
+}
+
+/// Derive a deterministic video_id from a YouTube URL.
+fn derive_video_id(url: &str) -> String {
+    if let Some(rest) = url.strip_prefix("https://youtu.be/") {
+        return rest
+            .split(['?', '&', '/'])
+            .next()
+            .unwrap_or("unknown")
+            .chars()
+            .take(16)
+            .collect();
+    }
+    if let Some(idx) = url.find("v=") {
+        let rest = &url[idx + 2..];
+        return rest
+            .split(['?', '&', '#'])
+            .next()
+            .unwrap_or("unknown")
+            .chars()
+            .take(16)
+            .collect();
+    }
+    let mut s: String = url.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    s.truncate(16);
+    if s.is_empty() {
+        s = "unknown".to_string();
+    }
+    s
+}
+
+/// Stage 1: invoke yt-dlp to download the source video.
+async fn download_with_ytdlp(url: &str, outdir: &Path) -> Result<()> {
+    let candidates = [
+        "yt-dlp",
+        "C:/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
+        "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",
+        "C:/ProgramData/chocolatey/bin/yt-dlp.exe",
+    ];
+    let mut last_err: Option<anyhow::Error> = None;
+    for bin in candidates {
+        let r = Command::new(bin)
+            .arg("-o")
+            .arg(format!("{}/source.%(ext)s", outdir.display()))
+            .arg("-f")
+            .arg("bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]")
+            .arg("--merge-output-format")
+            .arg("mp4")
+            .arg(url)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .await;
+        match r {
+            Ok(out) if out.status.success() => return Ok(()),
+            Ok(out) => {
+                last_err = Some(anyhow::anyhow!(
+                    "yt-dlp ({}) failed: {}",
+                    bin,
+                    String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(400)
+                        .collect::<String>()
+                ));
+            }
+            Err(e) => last_err = Some(anyhow::anyhow!("yt-dlp ({}) spawn error: {}", bin, e)),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("yt-dlp not found")))
+}
+
+/// Stage 2: detect pillarbox/letterbox bars. Hint only (gotcha 34).
+async fn cropdetect(source: &Path) -> Result<String> {
+    let ffmpeg = locate_ffmpeg().await?;
+    let out = Command::new(ffmpeg)
+        .arg("-i")
+        .arg(source)
+        .arg("-vf")
+        .arg("cropdetect=24:2:0")
+        .arg("-frames:v")
+        .arg("200")
+        .arg("-f")
+        .arg("null")
+        .arg("-")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .await?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let mut last = String::new();
+    for line in stderr.lines() {
+        if let Some(idx) = line.find("crop=") {
+            last = line[idx..]
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string();
+        }
+    }
+    Ok(last)
+}
+
+/// Stage 3: render the CRT shader via ffmpeg + libplacebo (gpu) and encode
+/// raw.mp4 (no audio).
+async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
+    let ffmpeg = locate_ffmpeg().await?;
+    let shader_path = raw_out.parent().unwrap().join("crt.glsl");
+    let shader_text = match std::fs::read_to_string("../scripts/crt.glsl") {
+        Ok(s) => s,
+        Err(_) => include_str!("../../scripts/crt.glsl").to_string(),
+    };
+    std::fs::write(&shader_path, &shader_text)?;
+    let vf = format!(
+        "crop={crop},libplacebo=custom_shader_path={}:w=1920:h=1080:fps=30:force_original_aspect_ratio=0",
+        shader_path.to_string_lossy().replace('\\', "/")
+    );
+    let status = Command::new(ffmpeg)
+        .arg("-y")
+        .arg("-hwaccel")
+        .arg("cuda")
+        .arg("-i")
+        .arg(source)
+        .arg("-vf")
+        .arg(&vf)
+        .arg("-an")
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-preset")
+        .arg("ultrafast")
+        .arg("-crf")
+        .arg("18")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg(raw_out)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await?;
+    if !status.success() {
+        anyhow::bail!("ffmpeg render failed (exit {status:?})");
+    }
+    Ok(())
+}
+
+/// Locate ffmpeg.exe on Windows.
+async fn locate_ffmpeg() -> Result<String> {
+    for candidate in [
+        "ffmpeg",
+        "C:/ProgramData/chocolatey/bin/ffmpeg.exe",
+        "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
+        "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe",
+    ] {
+        let probe = Command::new(candidate).arg("-version").output().await;
+        if let Ok(out) = probe {
+            if out.status.success() {
+                return Ok(candidate.to_string());
+            }
+        }
+    }
+    anyhow::bail!("ffmpeg not found")
+}

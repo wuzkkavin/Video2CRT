@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/settingsdialog.tsx","./src/components/stagechip.tsx","./src/lib/tauri.ts","./src/lib/types.ts","./src/pages/donepage.tsx","./src/pages/optionspage.tsx","./src/pages/progresspage.tsx","./src/pages/urlpage.tsx"],"version":"5.9.3"}
