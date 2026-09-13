@@ -434,6 +434,13 @@ async fn run_pipeline(
 }
 
 /// Spawn the Python sidecar and stream its stdout as progress events.
+///
+/// Uses the same Hermes-venv absolute path lookup as `yt-dlp`
+/// because the bare `python` on PATH may belong to a different
+/// (system / uv) install that doesn't have `faster_whisper`. We
+/// fall back to `python` (PATH lookup) only if no absolute candidate
+/// exists, so on a clean machine without Hermes installed the user
+/// still sees a useful error message instead of "python not found".
 async fn run_sidecar(
     app: &AppHandle,
     handle: &JobHandle,
@@ -442,12 +449,62 @@ async fn run_sidecar(
     cancel_flag: &Arc<Mutex<bool>>,
 ) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
-    let mut child = cmd_no_window("python")
+
+    // Same lookup table as `download_with_ytdlp` so that on the
+    // operator's machine we find the Hermes venv python (which has
+    // faster_whisper installed) without relying on PATH.
+    let python_candidates = [
+        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe",
+        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/Scripts/python.exe",
+        "%LOCALAPPDATA%/Video2CRT/bin/python.exe",
+        "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/python.exe",
+        "C:/Users/asaialabs/AppData/Local/Programs/Python/Python311/python.exe",
+    ];
+    let localappdata = std::env::var("LOCALAPPDATA")
+        .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string());
+    let python_bin = python_candidates
+        .iter()
+        .map(|c| {
+            if let Some(stripped) = c.strip_prefix("%LOCALAPPDATA%/") {
+                let base = localappdata.trim_end_matches(['/', '\\']);
+                format!("{}/{}", base, stripped)
+            } else {
+                c.to_string()
+            }
+        })
+        .find(|resolved| std::path::Path::new(resolved).exists())
+        .unwrap_or_else(|| "python".to_string());
+
+    // If we resolved to the Hermes venv python, also set PYTHONPATH
+    // so editable installs (hermes-agent) and faster_whisper (under
+    // Lib/site-packages) are importable. Without this the venv python
+    // starts with a sys.path that includes the venv root only, and
+    // editable-installed packages resolve correctly via the site-
+    // customisations that pip leaves behind — but faster_whisper
+    // (a regular install) lives at <venv>/Lib/site-packages which
+    // IS on sys.path, so this is actually belt-and-braces.
+    let mut cmd = cmd_no_window(&python_bin);
+    if python_bin.contains("hermes-agent/venv") {
+        let venv_root = python_bin
+            .trim_end_matches("/Scripts/python.exe")
+            .trim_end_matches("\\Scripts\\python.exe")
+            .trim_end_matches('/');
+        let site_pkgs = format!("{}/Lib/site-packages", venv_root);
+        cmd.env("PYTHONPATH", site_pkgs);
+    }
+
+    let mut child = cmd
         .arg(py_script)
         .arg(payload)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()?;
+        .spawn()
+        .with_context(|| {
+            format!(
+                "could not spawn python sidecar using `{}`. Tried:\n  - Hermes venv\n  - %%LOCALAPPDATA%%\\Video2CRT\\bin\\\n  - WinGet / Program Files Python\n  - bare `python` on PATH.\n\nInstall Python 3.11+ and `pip install faster-whisper`, then retry.",
+                python_bin
+            )
+        })?;
     let stdout = child
         .stdout
         .take()
