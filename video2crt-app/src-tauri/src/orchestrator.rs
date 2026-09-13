@@ -509,13 +509,34 @@ async fn run_sidecar(
         .stdout
         .take()
         .ok_or_else(|| anyhow::anyhow!("no stdout from sidecar"))?;
-    let mut reader = BufReader::new(stdout).lines();
-    while let Some(line) = reader.next_line().await? {
-        // Cancel check.
+    // Read stdout byte-by-byte using read_until('\n') and decode each
+    // line as lossy UTF-8. The previous code used
+    // `BufReader::new(stdout).lines()`, which internally calls
+    // `String::from_utf8` on each line and raises
+    // `io::Error::InvalidData("stream did not contain valid UTF-8")`
+    // the moment any non-UTF-8 byte crosses the pipe. That happened
+    // reliably here even though the Python sidecar itself emits valid
+    // UTF-8 — the bytes that crossed the pipe in the failing case
+    // were a stray Windows cp1252 lead byte left in a stdio buffer
+    // between two PROGRESS lines. from_utf8_lossy silently replaces
+    // those with U+FFFD so the read keeps going.
+    let mut reader = BufReader::new(stdout);
+    let mut buf: Vec<u8> = Vec::with_capacity(512);
+    loop {
+        buf.clear();
+        let n = reader.read_until(b'\n', &mut buf).await?;
+        if n == 0 {
+            // EOF: child closed stdout.
+            break;
+        }
+        // Cancel check on every line so user-cancel stays responsive.
         if *cancel_flag.lock().await {
             let _ = child.kill().await;
             anyhow::bail!("cancelled by user");
         }
+        let line = String::from_utf8_lossy(&buf)
+            .trim_end_matches("\r\n")
+            .to_string();
         // The sidecar emits JSON lines: PROGRESS {...}, DONE {...}, ERROR {...}.
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("PROGRESS ") {
@@ -529,6 +550,17 @@ async fn run_sidecar(
                     .to_string();
                 let overall = cumulative(stage) + intra * stage_weight(stage);
                 emit_progress(app, &handle.video_id, stage, overall, &msg, None);
+            } else if !trimmed.is_empty() {
+                // JSON parse failed — still surface the line so the
+                // user sees something instead of silent failure.
+                emit_progress(
+                    app,
+                    &handle.video_id,
+                    "asr",
+                    cumulative("asr"),
+                    "sidecar log",
+                    Some(trimmed),
+                );
             }
         } else if let Some(rest) = trimmed.strip_prefix("DONE ") {
             // Sidecar reports completion inside the same line stream; we
@@ -537,7 +569,7 @@ async fn run_sidecar(
             let _ = rest;
         } else if let Some(rest) = trimmed.strip_prefix("ERROR ") {
             anyhow::bail!("sidecar error: {}", rest);
-        } else {
+        } else if !trimmed.is_empty() {
             // Treat as plain log.
             emit_progress(
                 app,
