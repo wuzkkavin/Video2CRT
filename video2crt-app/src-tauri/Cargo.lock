@@ -4725,6 +4725,7 @@ name = "video2crt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "env_logger",
  "futures",
  "keyring",

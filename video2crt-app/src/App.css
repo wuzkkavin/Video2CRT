@@ -231,13 +231,22 @@ textarea {
 .input,
 .select {
   width: 100%;
-  padding: 9px 11px;
+  /* Standardized height: 38px tall form controls across the whole
+   * options page (text inputs, select dropdowns, URL preview, and
+   * checkbox rows all share this). Without explicit min-height, the
+   * browser default UA stylesheet gave .input ~32px and .select
+   * ~38px, which the user flagged as "欄位高度不一致". */
+  min-height: 38px;
+  padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid var(--border-strong);
   background: var(--bg-input);
   color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
   outline: none;
   transition: border-color 0.12s, box-shadow 0.12s;
+  box-sizing: border-box;
 }
 
 .input:focus,
@@ -345,15 +354,18 @@ textarea {
   font-size: 12px;
   color: var(--text-dim);
   background: var(--bg-elevated);
-  padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  /* Show the URL on a single line with horizontal overflow hidden.
-   * The full URL is still visible on hover via the `title` attribute
-   * set on the .tsx element. Discovered 2026-09-13 via user
-   * screenshot — the previous `max-height: 72px` + `overflow-y: auto`
-   * caused the URL to be vertically clipped to just the middle
-   * line, instead of showing it cleanly. */
+  /* Match .input/.select height exactly (38px) so the URL preview
+   * block lines up visually with the other form controls. Use flex
+   * centering so the URL text sits in the vertical middle.
+   * Discovered 2026-09-13 — user complained that the preview was
+   * ~28px tall while the select dropdowns were ~38px, making the
+   * layout look uneven. */
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
   width: 100%;
   box-sizing: border-box;
   overflow: hidden;
@@ -373,7 +385,11 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
+  /* Match the .input / .select / .options-url-preview height so
+   * checkboxes line up with the text inputs. Without this, the row
+   * is shorter and the form looks uneven. */
+  min-height: 38px;
+  padding: 0;
 }
 
 .checkbox-row input[type="checkbox"] {

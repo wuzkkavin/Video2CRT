@@ -84,93 +84,26 @@ async fn start_job(
     orchestrator::start(app, req).await.map_err(|e| e.to_string())
 }
 
-/// User-visible timestamp in YYYY-MM-DD HH:MM:SS format using the
+/// User-visible timestamp in `YYYY-MM-DD HH:MM:SS` format using the
 /// host machine's local timezone (whatever Windows has set under the
-/// hood). The previous `days=NNNN HH:MM:SSZ` format was UTC and
-/// confused the user who saw "05:21:58Z" instead of their expected
-/// 台北 13:21. We read the offset directly from the Win32
-/// `GetDynamicTimeZoneInformation` API, which is the same source
-/// the Windows clock tray uses, so we don't need to chase registry
-/// keys or time-zone names.
+/// hood). Replaces the original `days=NNNN HH:MM:SSZ` format that was
+/// UTC and confused the user who saw "05:21:58Z" instead of their
+/// expected 台北 13:21.
+///
+/// Uses `chrono::Local::now()` directly. `chrono` already handles
+/// Windows timezone via the registry + dynamic timezone APIs, so
+/// `Local::now()` returns the same wall-clock time the user sees in
+/// their task tray. The previous attempt called Win32
+/// `GetDynamicTimeZoneInformation` from Rust via an unsafe FFI shim,
+/// but the `Bias` field was consistently 0 — meaning the layout of
+/// the `DYNAMIC_TIME_ZONE_INFORMATION` struct was wrong (the
+/// `StandardDate` field is actually `SYSTEMTIME`, a `u16[8]`, not
+/// `u16[16]` as I had it). Rather than chase that, just use
+/// `chrono::Local` which gets it right.
 fn chrono_like_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    // 1. Current epoch seconds (UTC).
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let total_secs = dur.as_secs();
-
-    // 2. Ask Windows for the local-time UTC offset, in minutes.
-    //    The dynamic API correctly handles both standard and DST.
-    #[cfg(windows)]
-    let offset_minutes: i64 = unsafe {
-        let mut tz = std::mem::zeroed::<sysinfoapi::DYNAMIC_TIME_ZONE_INFORMATION>();
-        let rc = sysinfoapi::GetDynamicTimeZoneInformation(&mut tz);
-        if rc != 0 {
-            // `Bias` is in MINUTES WEST of UTC (so for Taipei UTC+8 it
-            // is -480). To convert an epoch second to local we ADD
-            // (in minutes) the negative of Bias — i.e. local = UTC +
-            // (-Bias). Note: Windows reports -480 for Taipei, which
-            // means 8 hours EAST of UTC.
-            -(*(&tz.Bias) as i64)
-        } else {
-            0
-        }
-    };
-    #[cfg(not(windows))]
-    let offset_minutes: i64 = 0;
-
-    // 3. Apply the offset to get local seconds-since-epoch, then
-    //    split into Y/M/D H:M:S.
-    let local_secs = (total_secs as i64).wrapping_add(offset_minutes * 60);
-    let days = (local_secs / 86400) as i64;
-    let secs_today = (local_secs.rem_euclid(86400)) as u64;
-    let h = ((secs_today / 3600) % 24) as u32;
-    let m = ((secs_today / 60) % 60) as u32;
-    let s = (secs_today % 60) as u32;
-
-    // 4. Convert epoch-days to Y/M/D via the proleptic Gregorian
-    //    formula (matches `date(1)` on Linux/macOS).
-    let z = days + 719468; // days from 0000-03-01
-    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let mth = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    let year = if mth <= 2 { y + 1 } else { y };
-
-    format!(
-        "{year:04}-{mth:02}-{d:02} {h:02}:{m:02}:{s:02}",
-    )
-}
-
-#[cfg(windows)]
-mod sysinfoapi {
-    use std::ffi::c_void;
-    #[repr(C)]
-    pub(super) struct DYNAMIC_TIME_ZONE_INFORMATION {
-        pub Bias: i32,
-        pub StandardName: [u16; 32],
-        pub StandardDate: [u16; 16],   // SYSTEMTIME, but we only need Bias
-        pub StandardBias: i32,
-        pub DaylightName: [u16; 32],
-        pub DaylightDate: [u16; 16],
-        pub DaylightBias: i32,
-        pub TimeZoneKeyName: [u16; 128],
-        pub DynamicDaylightTimeDisabled: u8,
-        _padding: [u8; 3],
-    }
-    extern "system" {
-        pub(super) fn GetDynamicTimeZoneInformation(
-            lpTimeZoneInformation: *mut DYNAMIC_TIME_ZONE_INFORMATION,
-        ) -> u32;
-    }
-    #[allow(dead_code)]
-    fn _phantom(_: *const c_void) {}
+    chrono::Local::now()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }
 
 /// Tauri command: cancel a running job by video_id.
