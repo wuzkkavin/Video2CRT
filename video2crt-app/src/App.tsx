@@ -133,13 +133,27 @@ function reducer(state: AppState, action: Action): AppState {
         result: null,
       };
     case "PROGRESS": {
-      const newLogs =
+      // Always append a log line for each stage transition or
+      // status change so the UI's log region scrolls in real time.
+      // Previously the reducer only appended when Rust supplied an
+      // explicit `logLine`, but stage_begin / stage_done in Rust
+      // emit progress with no log_line, so the log region stayed
+      // empty even though the pipeline was running. We now record
+      // both `logLine` (if present) AND the message text (if it
+      // changed since last emit) so the user sees activity.
+      const logText =
         action.logLine && action.logLine.length > 0
+          ? `[${action.stage}] ${action.logLine}`
+          : action.message !== state.message
+            ? `[${action.stage}] ${action.message}`
+            : null;
+      const newLogs =
+        logText !== null
           ? [
               ...state.logs,
               {
                 ts: Date.now(),
-                text: action.logLine,
+                text: logText,
                 stage: action.stage,
               },
             ]
