@@ -2,7 +2,8 @@
  * OptionsPage — second page of the wizard.
  *
  * Shows the URL the user just submitted and lets them tweak:
- *   - crop value (default 960:720:160:0 — gotcha 6 + 24)
+ *   - crop value (default empty → Rust auto-detects via cropdetect,
+ *     gotcha 6 + 24 + 34)
  *   - ASR language (auto / ja / en / zh)
  *   - cloud translation toggle + model (disabled when toggle is off)
  *
@@ -64,7 +65,7 @@ export function OptionsPage({
           value={crop}
           onChange={(e) => setCrop(e.target.value)}
           spellCheck={false}
-          placeholder="960:720:160:0"
+          placeholder="自動偵測 (留空)"
         />
         <span className="field-hint">
           格式 W:H:X:Y。預設 <code>960:720:160:0</code>{" "}

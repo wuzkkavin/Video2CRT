@@ -176,7 +176,9 @@ async fn run_pipeline(
 
     // Stage 1: yt-dlp download
     stage_begin(&app, &handle, "download", "downloading from YouTube via yt-dlp");
-    if let Err(e) = download_with_ytdlp(&req.url, Path::new(&handle.output_dir)).await {
+    if let Err(e) =
+        download_with_ytdlp(&app, &handle, &req.url, Path::new(&handle.output_dir)).await
+    {
         stage_error(&app, &handle, "download", &e);
         return Err(e);
     }
@@ -190,11 +192,39 @@ async fn run_pipeline(
         "scanning for pillarbox/letterbox bars",
     );
     let source = PathBuf::from(&handle.output_dir).join("source.mp4");
-    let _ = cropdetect(&source).await; // hint only
+    // Stage 2: dynamic cropdetect (gotcha 6 + 24 + 34). Every YouTube video
+    // has different pillarbox sizes, so we MUST NOT use a hardcoded crop
+    // like 960:720:160:0 — that will eat real content. We run cropdetect,
+    // then either honour the user's manual override (req.crop) or use the
+    // detected value as the default. The detected crop is also emitted as
+    // a PROGRESS event so the user can see what was chosen.
+    let detected_crop = cropdetect(&source).await.unwrap_or_default();
     let crop_value = req
         .crop
         .clone()
-        .unwrap_or_else(|| "960:720:160:0".to_string());
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            if detected_crop.is_empty() {
+                // cropdetect failed (gotcha 34: colored strips, luminance
+                // tricks cropdetect). Fall back to no-op crop (1920:1080:0:0)
+                // and let the user retry with manual crop in OptionsPage.
+                "1920:1080:0:0".to_string()
+            } else {
+                detected_crop.clone()
+            }
+        });
+    emit_progress(
+        &app,
+        &handle.video_id,
+        "cropdetect",
+        cumulative("cropdetect"),
+        &format!(
+            "detected pillarbox: {} → using crop={}",
+            if detected_crop.is_empty() { "(none)".to_string() } else { detected_crop.clone() },
+            crop_value
+        ),
+        Some(&crop_value),
+    );
     stage_done(&app, &handle, "cropdetect");
 
     // Stage 3: libplacebo CRT render
@@ -434,43 +464,137 @@ fn derive_video_id(url: &str) -> String {
 }
 
 /// Stage 1: invoke yt-dlp to download the source video.
-async fn download_with_ytdlp(url: &str, outdir: &Path) -> Result<()> {
+///
+/// Strategy: pick the first yt-dlp binary that exists on disk (no more
+/// "try every candidate in sequence" loop — that previously caused the
+/// UI to look frozen because the download stage could take minutes
+/// before any PROGRESS event arrived and the user had no feedback).
+/// We pipe stdout/stderr to a thread that emits each non-empty line
+/// as a PROGRESS log event so the UI log region scrolls in real time.
+async fn download_with_ytdlp(
+    app: &AppHandle,
+    handle: &JobHandle,
+    url: &str,
+    outdir: &Path,
+) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
     let candidates = [
         "yt-dlp",
-        "C:/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
         "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",
+        "C:/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
         "C:/ProgramData/chocolatey/bin/yt-dlp.exe",
     ];
-    let mut last_err: Option<anyhow::Error> = None;
-    for bin in candidates {
-        let r = Command::new(bin)
-            .arg("-o")
-            .arg(format!("{}/source.%(ext)s", outdir.display()))
-            .arg("-f")
-            .arg("bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]")
-            .arg("--merge-output-format")
-            .arg("mp4")
-            .arg(url)
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output()
-            .await;
-        match r {
-            Ok(out) if out.status.success() => return Ok(()),
-            Ok(out) => {
-                last_err = Some(anyhow::anyhow!(
-                    "yt-dlp ({}) failed: {}",
-                    bin,
-                    String::from_utf8_lossy(&out.stderr)
-                        .chars()
-                        .take(400)
-                        .collect::<String>()
-                ));
+    let bin = candidates
+        .iter()
+        .find(|c| {
+            // Use a synchronous probe — only "yt-dlp" (PATH) vs absolute paths.
+            std::path::Path::new(c).exists() || **c == "yt-dlp"
+        })
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("no yt-dlp candidate found on PATH or in known install dirs"))?;
+
+    emit_progress(
+        app,
+        &handle.video_id,
+        "download",
+        0.0,
+        &format!("downloading via {} ...", bin),
+        None,
+    );
+
+    let mut child = Command::new(bin)
+        .arg("-o")
+        .arg(format!("{}/source.%(ext)s", outdir.display()))
+        .arg("-f")
+        .arg("bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]")
+        .arg("--merge-output-format")
+        .arg("mp4")
+        .arg("--no-part") // write final file directly so partial files don't satisfy .exists() checks downstream
+        .arg(url)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stdout from yt-dlp"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stderr from yt-dlp"))?;
+
+    // Drain both streams concurrently, forwarding each non-empty line
+    // as a PROGRESS log event so the UI log region scrolls in real time.
+    let app_a = app.clone();
+    let vid_a = handle.video_id.clone();
+    let app_b = app.clone();
+    let vid_b = handle.video_id.clone();
+    let out_a = tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.trim().is_empty() {
+                continue;
             }
-            Err(e) => last_err = Some(anyhow::anyhow!("yt-dlp ({}) spawn error: {}", bin, e)),
+            emit_progress(
+                &app_a,
+                &vid_a,
+                "download",
+                0.0,
+                "yt-dlp output",
+                Some(&line),
+            );
         }
+    });
+    let out_b = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        let mut last_err = String::new();
+        while let Ok(Some(line)) = reader.next_line().await {
+            if line.trim().is_empty() {
+                continue;
+            }
+            last_err = line.clone();
+            emit_progress(
+                &app_b,
+                &vid_b,
+                "download",
+                0.0,
+                "yt-dlp log",
+                Some(&line),
+            );
+        }
+        last_err
+    });
+
+    // 10-minute hard timeout so we don't hang forever on stuck downloads
+    // (e.g. YouTube 403 / JS-runtime issues).
+    let status = match tokio::time::timeout(
+        std::time::Duration::from_secs(600),
+        child.wait(),
+    )
+    .await
+    {
+        Ok(r) => r?,
+        Err(_) => {
+            let _ = child.kill().await;
+            anyhow::bail!("yt-dlp timed out after 600s");
+        }
+    };
+
+    let _ = out_a.await;
+    let last_err_line = out_b.await.unwrap_or_default();
+    if !status.success() {
+        // Surface yt-dlp's last stderr line as the error message so the
+        // user sees "HTTP Error 403: Forbidden" instead of a generic
+        // "yt-dlp failed" in the UI.
+        anyhow::bail!(
+            "yt-dlp failed (exit {:?}): {}",
+            status.code(),
+            if last_err_line.is_empty() { "(no stderr)".to_string() } else { last_err_line }
+        );
     }
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("yt-dlp not found")))
+    Ok(())
 }
 
 /// Stage 2: detect pillarbox/letterbox bars. Hint only (gotcha 34).

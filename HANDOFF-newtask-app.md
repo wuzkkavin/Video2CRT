@@ -23,10 +23,11 @@
 - 階段 5: SRT 燒錄（10%）
 - 階段 6: mux 完成（5%）
 
-### Crop 預設值（gotcha 6 + 24）
-- 4:3 內容在 16:9 容器內 → `crop=960:720:160:0`（左右各切 160px = 12.5%）+ libplacebo stretch to 1920x1080
-- gotcha 24 trade-off：4:3 內容被拉伸約 33% 橫向變形，已在 TcLLpZBWsck (Fuji Kaze Kirari) 接受過同樣方案
-- 對於「mixed-aspect 多段混音」（如 100 首歌 MV），統一 crop 是 gotcha 24 推薦的 (A) 選項
+### Crop 預設值（gotcha 6 + 24 + 34）— **2026-09-13 改為 dynamic cropdetect**
+- ~~4:3 內容在 16:9 容器內 → `crop=960:720:160:0`~~ ← 錯!這個 hardcode 假設是 Bobby Brown 等特定影片,對 Louis Armstrong BBC TV (內容 1448 wide) 會切掉 488 px 真實內容
+- **新行為**:OptionsPage 預設 crop 欄位**留空**,Rust orchestrator 自動跑 `ffmpeg cropdetect=24:2:0` 偵測 pillarbox,然後用偵測到的 `crop=W:H:X:Y`(例如 `1448:1078:234:2`)進 libplacebo
+- gotcha 34: cropdetect 是 luminance-based,若 source 有彩色 dotmask/stripes 可能誤判。User 可在 OptionsPage 手動覆寫 crop 值
+- gotcha 24 trade-off:即使偵測正確,4:3 內容 stretch 到 1920x1080 仍有水平變形(accept 或在 OptionsPage 改用其他選項)
 
 ## API Key 管理
 - **選填，預設關閉**

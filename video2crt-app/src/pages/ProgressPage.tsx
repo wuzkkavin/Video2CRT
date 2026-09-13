@@ -43,16 +43,23 @@ function stageState(
   current: PipelineStage | null,
   errorMessage: string | null,
 ): "pending" | "active" | "done" | "error" {
+  // "init" is a meta-stage emitted by Rust on job start, before any real
+  // stage. Treat it as "no real stage yet" so all chips stay pending until
+  // the first real PROGRESS event arrives. Without this guard every chip
+  // would render as "done" because stageIndex("init") falls back to
+  // Number.MAX_SAFE_INTEGER and any real stage index < MAX. // marker-effectiveCurrent-1789265544.8109665
+  const effectiveCurrent = current === "init" ? null : current;
   if (errorMessage) {
     // When something fails, mark everything up to the failing stage done,
     // the current stage as error, and the rest pending.
-    if (current && stageIndex(stage) < stageIndex(current)) return "done";
-    if (current && stage === current) return "error";
+    if (effectiveCurrent && stageIndex(stage) < stageIndex(effectiveCurrent))
+      return "done";
+    if (effectiveCurrent && stage === effectiveCurrent) return "error";
     return "pending";
   }
-  if (!current) return "pending";
-  if (stage === current) return "active";
-  if (stageIndex(stage) < stageIndex(current)) return "done";
+  if (!effectiveCurrent) return "pending";
+  if (stage === effectiveCurrent) return "active";
+  if (stageIndex(stage) < stageIndex(effectiveCurrent)) return "done";
   return "pending";
 }
 

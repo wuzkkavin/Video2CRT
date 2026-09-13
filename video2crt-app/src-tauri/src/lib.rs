@@ -10,7 +10,7 @@
 //! events on every state change so the UI can render a progress bar without
 //! polling.
 
-mod orchestrator;
+pub mod orchestrator;
 mod settings;
 mod translator;
 

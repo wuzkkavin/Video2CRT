@@ -15,7 +15,13 @@ export interface StartJobRequest {
   url: string;
   /** Optional override of the project root. */
   projectRoot?: string | null;
-  /** Crop value, e.g. "960:720:160:0" (gotcha 6 + 24). */
+  /**
+   * Crop value, e.g. "960:720:160:0" (gotcha 6 + 24). Leave empty/null to let
+   * the Rust orchestrator run `ffmpeg cropdetect` and pick a per-video
+   * crop automatically. This is the recommended default — every YouTube
+   * video has different pillarbox dimensions, so a hardcoded crop will
+   * eat real content on any source wider than the crop width.
+   */
   crop?: string | null;
   /** ASR language hint: "ja" | "en" | "zh" | "auto". */
   asrLanguage?: string | null;

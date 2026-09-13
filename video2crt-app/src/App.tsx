@@ -45,7 +45,12 @@ import "./App.css";
 // --------------------------- Constants ---------------------------
 
 const DEFAULT_OPTIONS: JobOptions = {
-  crop: "960:720:160:0",
+  // Empty crop string → Rust orchestrator uses cropdetect to pick a
+  // per-video crop automatically (gotcha 6 + 24 + 34). Every YouTube video
+  // has different pillarbox dimensions, so a hardcoded crop like
+  // "960:720:160:0" will eat real content if the source's content area is
+  // wider than 960 px (e.g. Louis Armstrong BBC TV was actually 1448 wide).
+  crop: "",
   asrLanguage: "auto",
   cloudTranslation: false,
   translationModel: "MiniMax-M3",
