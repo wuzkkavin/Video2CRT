@@ -20,7 +20,25 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::process::Command;
+
+/// Build a `tokio::process::Command` for the given program with the
+/// Windows `CREATE_NO_WINDOW` flag set so child processes don't pop
+/// up a console window alongside our GUI. The previous behaviour
+/// (spawning without the flag) caused a black cmd window to flash
+/// every time the user kicked off a job. The 0x08000000 flag is the
+/// standard value for `CREATE_NO_WINDOW` from `WinBase.h`.
+#[cfg(windows)]
+fn cmd_no_window<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut c = tokio::process::Command::new(program);
+    c.creation_flags(0x0800_0000);
+    c
+}
+
+#[cfg(not(windows))]
+fn cmd_no_window<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Command {
+    tokio::process::Command::new(program)
+}
 use tokio::sync::Mutex;
 
 use crate::StartJobRequest;
@@ -114,6 +132,22 @@ pub fn resolve_project_root(req: &StartJobRequest) -> PathBuf {
         .join("Video2CRT")
 }
 
+/// Resolve the directory we write the output files into. Order of
+/// preference:
+///   1. `req.output_dir` if the user picked a folder in OptionsPage.
+///   2. `<project_root>/output/yt_<video_id>/` (the historical default).
+pub fn resolve_output_dir(req: &StartJobRequest, project_root: &Path) -> PathBuf {
+    if let Some(p) = &req.output_dir {
+        let p = p.trim();
+        if !p.is_empty() {
+            return PathBuf::from(p);
+        }
+    }
+    project_root
+        .join("output")
+        .join(format!("yt_{}", derive_video_id(&req.url)))
+}
+
 /// Kick off the orchestrator. Returns immediately with the new job handle.
 pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     // Emit a progress event IMMEDIATELY before doing anything else so
@@ -145,7 +179,9 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     }
 
     let video_id = derive_video_id(&req.url);
-    let output_dir = project_root.join("output").join(format!("yt_{video_id}"));
+    // Output dir honors req.output_dir if the user picked a folder
+    // in OptionsPage; otherwise fall back to the historical default.
+    let output_dir = resolve_output_dir(&req, &project_root);
 
     // Write breadcrumb log at every key step so we can tell where
     // the synchronous part of `start()` dies (if it does) before
@@ -406,7 +442,7 @@ async fn run_sidecar(
     cancel_flag: &Arc<Mutex<bool>>,
 ) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
-    let mut child = Command::new("python")
+    let mut child = cmd_no_window("python")
         .arg(py_script)
         .arg(payload)
         .stdout(Stdio::piped())
@@ -464,20 +500,68 @@ async fn run_sidecar(
 }
 
 /// Find the bundled Python sidecar script.
+///
+/// In development (`cargo run`), the script lives at
+/// `<repo>/src-tauri/bin/pipeline_cli.py` relative to the project
+/// root. When the .exe is launched from `target/release/video2crt.exe`,
+/// the cwd is `target/release/` and the candidates below wouldn't
+/// resolve. We use `CARGO_MANIFEST_DIR` (set at compile time) for the
+/// development build path, and `env::current_exe().parent()` to walk
+/// back from the released binary to the repo root for the release
+/// build path.
+///
+/// Production bundle (Phase 2): embed pipeline_cli.py via Tauri's
+/// `tauri::path::ResourcePath::resolve` so the sidecar is next to
+/// the .exe at runtime. Tracked in HANDOFF Phase 2.
 fn locate_sidecar() -> Result<PathBuf> {
-    // 1. Repo-relative: src-tauri/bin/pipeline_cli.py
-    let candidates = [
-        "src-tauri/bin/pipeline_cli.py",
-        "../src-tauri/bin/pipeline_cli.py",
-        "bin/pipeline_cli.py",
-    ];
-    for c in candidates {
-        let p = PathBuf::from(c);
-        if p.exists() {
-            return Ok(p.canonicalize().unwrap_or(p));
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // 1. Compile-time absolute path from Cargo (works in dev builds).
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin/pipeline_cli.py"));
+
+    // 2. Release-build recovery: walk up from current_exe() looking
+    //    for src-tauri/bin/pipeline_cli.py. The .exe lives at
+    //    <repo>/video2crt-app/src-tauri/target/release/video2crt.exe,
+    //    so we go up 4 levels (release → target → src-tauri →
+    //    video2crt-app) then descend into src-tauri/bin/.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("pipeline_cli.py"));
+            candidates.push(dir.join("bin").join("pipeline_cli.py"));
+            // Walk up to 4 parents looking for src-tauri/bin.
+            let mut p = dir.to_path_buf();
+            for _ in 0..5 {
+                let candidate = p.join("src-tauri").join("bin").join("pipeline_cli.py");
+                if candidate.exists() {
+                    candidates.push(candidate.clone());
+                    break;
+                }
+                match p.parent() {
+                    Some(parent) => p = parent.to_path_buf(),
+                    None => break,
+                }
+            }
         }
     }
-    anyhow::bail!("pipeline_cli.py not found")
+
+    // 3. Cwd-relative fallbacks (kept for completeness).
+    candidates.push(PathBuf::from("src-tauri/bin/pipeline_cli.py"));
+    candidates.push(PathBuf::from("bin/pipeline_cli.py"));
+
+    for p in &candidates {
+        if p.exists() {
+            return Ok(p.canonicalize().unwrap_or_else(|_| p.clone()));
+        }
+    }
+
+    anyhow::bail!(
+        "pipeline_cli.py not found. Tried:\n  - {}\n\nThis is a build / packaging issue. The Python sidecar script must\nlive next to the Tauri binary. See HANDOFF-newtask-app.md Phase 2.",
+        candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n  - ")
+    )
 }
 
 async fn check_cancel(flag: &Arc<Mutex<bool>>) -> Result<()> {
@@ -651,7 +735,7 @@ async fn download_with_ytdlp(
         None,
     );
 
-    let mut child = Command::new(bin)
+    let mut child = cmd_no_window(bin)
         .arg("-o")
         .arg(format!("{}/source.%(ext)s", outdir.display()))
         .arg("-f")
@@ -748,7 +832,7 @@ async fn download_with_ytdlp(
 /// Stage 2: detect pillarbox/letterbox bars. Hint only (gotcha 34).
 async fn cropdetect(source: &Path) -> Result<String> {
     let ffmpeg = locate_ffmpeg().await?;
-    let out = Command::new(ffmpeg)
+    let out = cmd_no_window(ffmpeg)
         .arg("-i")
         .arg(source)
         .arg("-vf")
@@ -801,7 +885,7 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
     let vf = format!(
         "crop={crop},libplacebo=custom_shader_path=crt.glsl:w=1920:h=1080:fps=30:force_original_aspect_ratio=0"
     );
-    let status = Command::new(ffmpeg)
+    let status = cmd_no_window(ffmpeg)
         .arg("-y")
         .arg("-hwaccel")
         .arg("cuda")
@@ -840,7 +924,7 @@ async fn locate_ffmpeg() -> Result<String> {
         "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
         "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe",
     ] {
-        let probe = Command::new(candidate).arg("-version").output().await;
+        let probe = cmd_no_window(candidate).arg("-version").output().await;
         if let Ok(out) = probe {
             if out.status.success() {
                 return Ok(candidate.to_string());

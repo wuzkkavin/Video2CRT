@@ -373,6 +373,22 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.output-dir-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.output-dir-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.output-dir-row .btn {
+  flex: 0 0 auto;
+  min-height: 38px;
+}
+
 .options-actions {
   display: flex;
   justify-content: space-between;

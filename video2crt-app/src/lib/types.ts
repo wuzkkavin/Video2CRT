@@ -29,6 +29,11 @@ export interface StartJobRequest {
   cloudTranslation: boolean;
   /** Model id for cloud translation (required when cloudTranslation=true). */
   translationModel?: string | null;
+  /**
+   * Absolute output directory picked by the user in OptionsPage.
+   * Empty/null → Rust falls back to `<projectRoot>/output/yt_<id>/`.
+   */
+  outputDir?: string | null;
 }
 
 /** Result of a successful `start_job` invocation. */
@@ -109,4 +114,11 @@ export interface JobOptions {
   asrLanguage: "auto" | "ja" | "en" | "zh";
   cloudTranslation: boolean;
   translationModel: string;
+  /**
+   * Directory to write `source.mp4 / raw.mp4 / subtitled.mp4 /
+   * final.mp4 / *.srt` into. Defaults to `<projectRoot>/output/yt_<id>`
+   * if empty. The user can override this from OptionsPage via a
+   * folder picker; we keep the path absolute on the Rust side.
+   */
+  outputDir: string;
 }

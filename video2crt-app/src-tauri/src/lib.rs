@@ -33,6 +33,11 @@ pub struct StartJobRequest {
     pub cloud_translation: bool,
     /// Model id for cloud translation (only used when `cloud_translation=true`).
     pub translation_model: Option<String>,
+    /// Optional output directory for `source.mp4 / raw.mp4 / *.srt /
+    /// final.mp4`. When Some, files are written into this dir directly
+    /// (no `yt_<id>` subfolder created). When None, the orchestrator
+    /// falls back to `<projectRoot>/output/yt_<id>/`.
+    pub output_dir: Option<String>,
 }
 
 /// Result of a successful job run.

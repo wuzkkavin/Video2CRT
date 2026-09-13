@@ -11,6 +11,7 @@
  */
 
 import { useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { JobOptions } from "../lib/types";
 
 export interface OptionsPageProps {
@@ -37,6 +38,10 @@ export function OptionsPage({
   const [translationModel, setTranslationModel] = useState(
     defaultOptions.translationModel,
   );
+  // Output directory. Empty string means "use the default
+  // <projectRoot>/output/yt_<id>/". When the user picks a folder via
+  // the dialog, we store its absolute path here and ship it to Rust.
+  const [outputDir, setOutputDir] = useState(defaultOptions.outputDir);
 
   const handleStart = () => {
     onStart({
@@ -44,7 +49,28 @@ export function OptionsPage({
       asrLanguage,
       cloudTranslation,
       translationModel: cloudTranslation ? translationModel : "",
+      outputDir: outputDir.trim(),
     });
+  };
+
+  // Pop the OS folder picker via Tauri's dialog plugin. Returns
+  // absolute path or null if the user cancelled.
+  const handlePickOutputDir = async () => {
+    try {
+      const result = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "選擇輸出資料夾",
+        defaultPath: outputDir || undefined,
+      });
+      if (typeof result === "string") {
+        setOutputDir(result);
+      }
+    } catch (e) {
+      // Silent: the dialog can throw if the user closes it via the
+      // X button before the promise resolves; not actionable.
+      console.warn("folder picker cancelled", e);
+    }
   };
 
   return (
@@ -128,6 +154,35 @@ export function OptionsPage({
         </select>
         <span className="field-hint">
           開啟雲端翻譯前，請先在「設定」中儲存 API key。
+        </span>
+      </div>
+
+      <div className="field">
+        <label className="field-label" htmlFor="output-dir-input">
+          輸出資料夾
+        </label>
+        <div className="output-dir-row">
+          <input
+            id="output-dir-input"
+            className="input"
+            type="text"
+            value={outputDir}
+            onChange={(e) => setOutputDir(e.target.value)}
+            spellCheck={false}
+            placeholder="留空使用預設 ~/Documents/Hermes/Video2CRT/output/yt_<id>/"
+          />
+          <button
+            type="button"
+            className="btn"
+            onClick={handlePickOutputDir}
+            title="瀏覽…"
+          >
+            瀏覽…
+          </button>
+        </div>
+        <span className="field-hint">
+          影片、字幕、log 都會寫進這個資料夾。留空時使用
+          <code>~/Documents/Hermes/Video2CRT/output/yt_&lt;video-id&gt;</code>。
         </span>
       </div>
 

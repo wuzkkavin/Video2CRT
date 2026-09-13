@@ -63,6 +63,10 @@ const DEFAULT_OPTIONS: JobOptions = {
   asrLanguage: "auto",
   cloudTranslation: false,
   translationModel: "MiniMax-M3",
+  // Empty outputDir → Rust falls back to `<projectRoot>/output/yt_<id>/`.
+  // The OptionsPage offers a folder picker; if the user picks one we
+  // store the absolute path here and ship it with start_job.
+  outputDir: "",
 };
 
 // --------------------------- State ---------------------------
@@ -265,6 +269,9 @@ export function App() {
           translationModel: opts.cloudTranslation
             ? opts.translationModel
             : null,
+          // User-picked output dir from OptionsPage (or empty string
+          // → Rust falls back to <projectRoot>/output/yt_<id>).
+          outputDir: opts.outputDir.trim() === "" ? null : opts.outputDir,
         });
         dispatch({ type: "JOB_STARTED", videoId: handle.videoId });
       } catch (e: unknown) {

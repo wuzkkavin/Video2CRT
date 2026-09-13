@@ -155,8 +155,15 @@ export function ProgressPage({
 }
 
 function formatTs(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  // ms is an epoch millisecond timestamp from Date.now(). Convert to
+  // local H:M:S, mod 24h so the displayed time always reads as a
+  // wall-clock time the user can recognise.
+  // The previous implementation did `m = floor(total / 60)` which
+  // produced things like "29821470:20" (minutes-since-epoch wrapped
+  // mod 60 seconds) — meaningless to the user. Use a real clock.
+  const d = new Date(ms);
+  const hh = d.getHours().toString().padStart(2, "0");
+  const mm = d.getMinutes().toString().padStart(2, "0");
+  const ss = d.getSeconds().toString().padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
 }
