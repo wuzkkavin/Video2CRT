@@ -606,34 +606,41 @@ async fn download_with_ytdlp(
     use tokio::io::{AsyncBufReadExt, BufReader};
 
     let candidates = [
-        // Plain name first so a properly configured PATH wins. This
-        // is what `which yt-dlp` / `where yt-dlp` return for shells
-        // started in the Hermes venv, but a bare `.exe` launched from
-        // Explorer does NOT inherit that venv's PATH — hence the
-        // explicit fallbacks below.
-        "yt-dlp",
         // Hermes venv (where the user actually has yt-dlp installed,
-        // verified via `where yt-dlp`).
+        // verified via `where yt-dlp`). Listed first so this .exe
+        // works for the current operator without depending on PATH.
         "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
         "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/Scripts/yt-dlp.exe",
+        // Setup wizard target directory — for distribution builds,
+        // the wizard downloads yt-dlp here on first launch.
+        // %LOCALAPPDATA% resolves at runtime via env::var below; we
+        // leave the literal here as a fallback for the common case
+        // and read the env var in the find closure.
+        "%LOCALAPPDATA%/Video2CRT/bin/yt-dlp.exe",
         // Common third-party locations.
         "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",
         "C:/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
         "C:/ProgramData/chocolatey/bin/yt-dlp.exe",
     ];
+    let localappdata = std::env::var("LOCALAPPDATA")
+        .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string());
     let bin = candidates
         .iter()
-        .find(|c| {
-            // Plain "yt-dlp" — try it (Windows will error if not on PATH).
-            // Absolute paths — probe with Path::exists.
-            if **c == "yt-dlp" {
-                true
+        .map(|c| {
+            if let Some(stripped) = c.strip_prefix("%LOCALAPPDATA%/") {
+                // Normalise: strip any trailing slash from LOCALAPPDATA,
+                // and use a single forward slash (Windows accepts both).
+                let base = localappdata.trim_end_matches(['/', '\\']);
+                format!("{}/{}", base, stripped)
             } else {
-                std::path::Path::new(c).exists()
+                c.to_string()
             }
         })
-        .copied()
-        .ok_or_else(|| anyhow::anyhow!("no yt-dlp candidate found on PATH or in known install dirs"))?;
+        .find(|resolved| std::path::Path::new(resolved).exists())
+        .ok_or_else(|| anyhow::anyhow!(
+            "yt-dlp not found. Tried:\n  - Hermes venv ({})\n  - %LOCALAPPDATA%\\Video2CRT\\bin\\\n  - WinGet links / Python Scripts / chocolatey.\n\nInstall yt-dlp with:\n  winget install yt-dlp\nor download yt-dlp.exe from https://github.com/yt-dlp/yt-dlp/releases/latest and place it in your PATH.",
+            std::env::var("USERPROFILE").unwrap_or_default()
+        ))?;
 
     emit_progress(
         app,
