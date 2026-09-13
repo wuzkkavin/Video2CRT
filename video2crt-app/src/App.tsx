@@ -343,7 +343,7 @@ export function App() {
 
       <footer className="app-footer">
         <span>
-          v0.1 · build {(__VIDEO2CRT_BUILD_TIME__ || "unknown").slice(0, 19).replace("T", " ")}Z
+          v0.1 · build {(__VIDEO2CRT_BUILD_TIME__ || "unknown")}
         </span>
         <span>
           {state.page === "options" || state.page === "url" ? (

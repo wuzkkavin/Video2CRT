@@ -404,7 +404,17 @@ def run(args: dict[str, Any]) -> int:
     url = args.get("url", "")
     output_dir = Path(args["outputDir"])
     crop = args.get("crop", "") or ""
-    asr_language = args.get("asrLanguage") or None
+    # Normalise the ASR language hint. OptionsPage exposes
+    # "auto" / "ja" / "en" / "zh" but faster_whisper rejects the
+    # literal "auto" (it expects None for autodetect or a real
+    # ISO-639-1 code like "ja"). Map "auto" → None so Whisper
+    # auto-detects the language.
+    raw_asr = args.get("asrLanguage")
+    asr_language: str | None
+    if raw_asr is None or raw_asr == "" or raw_asr == "auto":
+        asr_language = None
+    else:
+        asr_language = raw_asr
     cloud_translation = bool(args.get("cloudTranslation", False))
     translation_model = args.get("translationModel") or ""
     video_id = args.get("videoId") or Path(output_dir).name
