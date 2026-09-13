@@ -70,7 +70,15 @@ textarea {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: 100vh;   /* Force viewport height — without `100vh`, some
+                      WebView2 versions on Windows report a smaller
+                      inner height than the OS window height because
+                      the title bar / WebView2 chrome isn't accounted
+                      for. Result: .app-body ends up shorter than
+                      the visible window, contents overflow vertically,
+                      and the URL preview (the first child of
+                      .options-page) ends up only partly visible.
+                      Discovered 2026-09-13 via user screenshot. */
   padding: 16px 20px 20px;
   gap: 12px;
   background: var(--bg);
@@ -82,6 +90,7 @@ textarea {
   justify-content: space-between;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
+  min-width: 0;
 }
 
 .app-title {
@@ -104,6 +113,13 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Without min-width: 0 on this flex item, the longest intrinsic
+   * content (e.g. the .options-url-preview containing a long URL)
+   * becomes the flex item's minimum size and pushes the body wider
+   * than the viewport, producing the horizontal scrollbar the user
+   * saw. Discovered 2026-09-13. */
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .app-footer {
@@ -190,7 +206,14 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
+  /* Without min-width: 0 on this flex item, intrinsic content
+   * width (a long non-wrapping URL) becomes the field's minimum
+   * width and pushes the whole options-page wider than the
+   * viewport. Discovered 2026-09-13 via repeated user screenshots. */
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .field-label {
@@ -302,7 +325,13 @@ textarea {
   flex-direction: column;
   gap: 6px;
   padding: 6px 4px 0;
-  overflow-y: auto;
+  /* At default 760×700 the content fits; at minimum 640×560 (the
+   * tauri.conf.json minWidth/minHeight) it still fits. If the user
+   * resizes the window smaller than minHeight, the OS clips the
+   * window — no in-app scroll bar to confuse the layout. */
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .options-page h2 {
@@ -319,9 +348,17 @@ textarea {
   padding: 6px 10px;
   border-radius: 4px;
   border: 1px solid var(--border);
+  /* Show the URL on a single line with horizontal overflow hidden.
+   * The full URL is still visible on hover via the `title` attribute
+   * set on the .tsx element. Discovered 2026-09-13 via user
+   * screenshot — the previous `max-height: 72px` + `overflow-y: auto`
+   * caused the URL to be vertically clipped to just the middle
+   * line, instead of showing it cleanly. */
+  width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .options-actions {

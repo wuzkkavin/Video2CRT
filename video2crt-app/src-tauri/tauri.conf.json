@@ -14,10 +14,10 @@
     "windows": [
       {
         "title": "Video2CRT",
-        "width": 720,
-        "height": 560,
-        "minWidth": 600,
-        "minHeight": 480,
+        "width": 760,
+        "height": 700,
+        "minWidth": 640,
+        "minHeight": 560,
         "resizable": true,
         "fullscreen": false,
         "decorations": true

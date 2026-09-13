@@ -116,18 +116,67 @@ pub fn resolve_project_root(req: &StartJobRequest) -> PathBuf {
 
 /// Kick off the orchestrator. Returns immediately with the new job handle.
 pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
+    // Emit a progress event IMMEDIATELY before doing anything else so
+    // the UI log region shows the user that the Rust side has received
+    // their click. Without this, if the spawned tokio task panics or
+    // hangs at any later step, the user only sees the "init 已啟動,
+    // 等待後端…" placeholder text and has no way to know whether the
+    // IPC call ever reached Rust.
+    emit_progress(
+        &app,
+        &derive_video_id(&req.url),
+        "init",
+        0.0,
+        "Rust received start_job command — entering orchestrator",
+        None,
+    );
+
     let project_root = resolve_project_root(&req);
     if !project_root.exists() {
-        anyhow::bail!("Project root does not exist: {}", project_root.display());
+        let msg = format!("Project root does not exist: {}", project_root.display());
+        let _ = app.emit(
+            "pipeline://error",
+            serde_json::json!({
+                "videoId": derive_video_id(&req.url),
+                "message": msg,
+            }),
+        );
+        anyhow::bail!(msg);
     }
 
     let video_id = derive_video_id(&req.url);
     let output_dir = project_root.join("output").join(format!("yt_{video_id}"));
+
+    // Write breadcrumb log at every key step so we can tell where
+    // the synchronous part of `start()` dies (if it does) before
+    // the tokio::spawn runs.
+    let breadcrumb_log = |line: &str| {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(std::path::PathBuf::from(
+                std::env::var("USERPROFILE").unwrap_or_default(),
+            )
+            .join("Documents")
+            .join("Hermes")
+            .join("Video2CRT")
+            .join("video2crt-startup.log"))
+        {
+            use std::io::Write as _;
+            let _ = writeln!(f, "[trace] {}", line);
+        }
+    };
+    breadcrumb_log(&format!("A: about to create_dir_all({})", output_dir.display()));
+
     std::fs::create_dir_all(&output_dir)
         .with_context(|| format!("creating {}", output_dir.display()))?;
+    breadcrumb_log("B: create_dir_all OK");
 
     let registry = app.state::<JobRegistry>();
+    breadcrumb_log("C: got JobRegistry state");
+
     let cancel_flag = registry.register(&video_id).await;
+    breadcrumb_log(&format!("D: registered cancel_flag for {}", video_id));
 
     let handle = JobHandle {
         video_id: video_id.clone(),
@@ -138,7 +187,27 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     let app_for_task = app.clone();
     let req_for_task = req.clone();
     let handle_for_task = handle.clone();
+    breadcrumb_log("E: about to tokio::spawn");
     tokio::spawn(async move {
+        // Write to startup log immediately on task entry so we can tell
+        // whether the task even starts. If we don't see this line in
+        // startup.log, the spawn itself never ran (e.g. panic in
+        // tokio runtime, or the Tauri event loop dropped us).
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(std::path::PathBuf::from(
+                std::env::var("USERPROFILE").unwrap_or_default(),
+            )
+            .join("Documents")
+            .join("Hermes")
+            .join("Video2CRT")
+            .join("video2crt-startup.log"))
+        {
+            use std::io::Write as _;
+            let _ = writeln!(f, "[stage] tokio::spawn task entered for {}", video_id);
+        }
+
         // Wrap the pipeline in catch_unwind so a panic inside the tokio
         // task surfaces as a `pipeline://error` event instead of dying
         // silently (which is what was happening — the user saw the
@@ -459,6 +528,26 @@ fn emit_progress(
     message: &str,
     log_line: Option<&str>,
 ) {
+    // Breadcrumb log every emit so we can tell whether the Rust side
+    // is publishing events the UI is failing to receive.
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(std::path::PathBuf::from(
+            std::env::var("USERPROFILE").unwrap_or_default(),
+        )
+        .join("Documents")
+        .join("Hermes")
+        .join("Video2CRT")
+        .join("video2crt-startup.log"))
+    {
+        use std::io::Write as _;
+        let _ = writeln!(
+            f,
+            "[emit] stage={} progress={:.2} message={}",
+            stage, progress, message
+        );
+    }
     let _ = app.emit(
         "pipeline://progress",
         ProgressEvent {
@@ -517,7 +606,17 @@ async fn download_with_ytdlp(
     use tokio::io::{AsyncBufReadExt, BufReader};
 
     let candidates = [
+        // Plain name first so a properly configured PATH wins. This
+        // is what `which yt-dlp` / `where yt-dlp` return for shells
+        // started in the Hermes venv, but a bare `.exe` launched from
+        // Explorer does NOT inherit that venv's PATH — hence the
+        // explicit fallbacks below.
         "yt-dlp",
+        // Hermes venv (where the user actually has yt-dlp installed,
+        // verified via `where yt-dlp`).
+        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
+        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/Scripts/yt-dlp.exe",
+        // Common third-party locations.
         "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",
         "C:/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
         "C:/ProgramData/chocolatey/bin/yt-dlp.exe",
@@ -525,8 +624,13 @@ async fn download_with_ytdlp(
     let bin = candidates
         .iter()
         .find(|c| {
-            // Use a synchronous probe — only "yt-dlp" (PATH) vs absolute paths.
-            std::path::Path::new(c).exists() || **c == "yt-dlp"
+            // Plain "yt-dlp" — try it (Windows will error if not on PATH).
+            // Absolute paths — probe with Path::exists.
+            if **c == "yt-dlp" {
+                true
+            } else {
+                std::path::Path::new(c).exists()
+            }
         })
         .copied()
         .ok_or_else(|| anyhow::anyhow!("no yt-dlp candidate found on PATH or in known install dirs"))?;

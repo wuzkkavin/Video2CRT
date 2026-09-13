@@ -42,6 +42,15 @@ import type {
 } from "./lib/types";
 import "./App.css";
 
+// Build timestamp injected at vite build time via vite.config.ts's
+// `define` option. Shows the user exactly when the running binary was
+// compiled — they had complained the "v0.1 · Tauri 2 + React" footer
+// never changed, making it impossible to tell if a fix was actually
+// deployed.
+// Use the declare form so TS doesn't complain about the implicit global.
+declare const __VIDEO2CRT_BUILD_TIME__: string;
+declare const __VIDEO2CRT_BUILD_EPOCH__: number;
+
 // --------------------------- Constants ---------------------------
 
 const DEFAULT_OPTIONS: JobOptions = {
@@ -312,7 +321,9 @@ export function App() {
       </main>
 
       <footer className="app-footer">
-        <span>v0.1 · Tauri 2 + React</span>
+        <span>
+          v0.1 · build {(__VIDEO2CRT_BUILD_TIME__ || "unknown").slice(0, 19).replace("T", " ")}Z
+        </span>
         <span>
           {state.page === "options" || state.page === "url" ? (
             <button
