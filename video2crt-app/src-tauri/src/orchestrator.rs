@@ -13,6 +13,7 @@
 //! `{ videoId, stage, progress (0.0..=1.0), message, logLine }`.
 
 use anyhow::{Context, Result};
+use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -138,11 +139,47 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     let req_for_task = req.clone();
     let handle_for_task = handle.clone();
     tokio::spawn(async move {
-        let result = run_pipeline(app_for_task.clone(), req_for_task, handle_for_task, cancel_flag).await;
+        // Wrap the pipeline in catch_unwind so a panic inside the tokio
+        // task surfaces as a `pipeline://error` event instead of dying
+        // silently (which is what was happening — the user saw the
+        // "init 已啟動,等待後端…" message forever with no further
+        // activity).
+        let video_id_for_catch = video_id.clone();
+        let app_for_catch = app_for_task.clone();
+        let result = std::panic::AssertUnwindSafe(run_pipeline(
+            app_for_task.clone(),
+            req_for_task,
+            handle_for_task,
+            cancel_flag,
+        ))
+        .catch_unwind()
+        .await;
+
+        let final_result: anyhow::Result<()> = match result {
+            Ok(r) => r,
+            Err(panic_payload) => {
+                let msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    (*s).to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "panic in pipeline task (unknown payload)".to_string()
+                };
+                let _ = app_for_catch.emit(
+                    "pipeline://error",
+                    serde_json::json!({
+                        "videoId": video_id_for_catch,
+                        "message": format!("pipeline panicked: {msg}"),
+                    }),
+                );
+                Ok(())
+            }
+        };
+
         // Always remove from registry when done, regardless of outcome.
         let reg = app_for_task.state::<JobRegistry>();
         reg.remove(&video_id).await;
-        if let Err(e) = result {
+        if let Err(e) = final_result {
             let _ = app_for_task.emit(
                 "pipeline://error",
                 serde_json::json!({
@@ -615,14 +652,18 @@ async fn cropdetect(source: &Path) -> Result<String> {
         .output()
         .await?;
     let stderr = String::from_utf8_lossy(&out.stderr);
+    // ffmpeg cropdetect emits lines like
+    //   [Parsed_cropdetect_0 @ ...] crop=W:H:X:Y
+    // We want JUST the "W:H:X:Y" portion. If we keep the leading "crop="
+    // and later concatenate it inside another filter expression like
+    // `crop={value},libplacebo=...`, ffmpeg sees `crop=crop=...` and
+    // refuses ("No option name near '...'") — discovered 2026-09-13.
     let mut last = String::new();
     for line in stderr.lines() {
         if let Some(idx) = line.find("crop=") {
-            last = line[idx..]
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-                .to_string();
+            let raw = &line[idx..];
+            let token = raw.split_whitespace().next().unwrap_or("");
+            last = token.trim_start_matches("crop=").to_string();
         }
     }
     Ok(last)
