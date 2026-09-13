@@ -90,12 +90,26 @@ def burn_subtitles_local(raw: Path, srt: Path, subtitled: Path, cwd_dir: Path) -
     return subtitled
 
 
-def mux_audio_local(subtitled: Path, source: Path, final: Path, cwd_dir: Path) -> Path:
+def mux_audio_local(video_in: Path, source: Path, final: Path, cwd_dir: Path) -> Path:
+    """Mux video from `video_in` (relative file name) with audio from `source`.
+
+    `video_in` is usually the raw CRT-rendered mp4 or the subtitled
+    burned-in mp4; this function doesn't care which — it just takes the
+    first arg's video and the second arg's audio.
+
+    Both inputs must already exist in `cwd_dir`. We pass them as plain
+    file names (`raw.mp4` / `subtitled.mp4`) so libplacebo's `:` parser
+    is never confused by a Windows absolute path. The caller is
+    responsible for ensuring the file exists under cwd_dir before
+    calling this function.
+    """
+    video_name = video_in.name
+    source_name = source.name
     cmd = [
-        "ffmpeg", "-y", "-i", "subtitled.mp4", "-i", "source.mp4",
+        "ffmpeg", "-y", "-i", video_name, "-i", source_name,
         "-map", "0:v", "-map", "1:a",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-aspect", "16:9", "-shortest", "final.mp4",
+        "-aspect", "16:9", "-shortest", final.name,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd_dir), timeout=120)
     if proc.returncode != 0:
