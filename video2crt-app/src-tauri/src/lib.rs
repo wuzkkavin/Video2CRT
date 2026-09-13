@@ -52,7 +52,50 @@ async fn start_job(
     app: tauri::AppHandle,
     req: StartJobRequest,
 ) -> Result<orchestrator::JobHandle, String> {
+    // Append a breadcrumb to a known log file so the user can confirm the
+    // command was reached even if Rust is silently panicking inside the
+    // spawned tokio task. Without this, a stuck UI shows "0% / init 已啟動,
+    // 等待後端…" forever with no further activity, leaving the user
+    // unable to tell whether the IPC call reached Rust at all.
+    let breadcrumb = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| "C:\\Users\\Public".to_string());
+    let log_path = std::path::PathBuf::from(breadcrumb)
+        .join("Documents")
+        .join("Hermes")
+        .join("Video2CRT")
+        .join("video2crt-startup.log");
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map(|mut f| {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "[{}] start_job called: url={}, crop={:?}, projectRoot={:?}",
+                chrono_like_timestamp(),
+                req.url,
+                req.crop,
+                req.project_root,
+            );
+        });
+    log::info!("start_job called: {:?}", req);
     orchestrator::start(app, req).await.map_err(|e| e.to_string())
+}
+
+/// Minimal RFC3339-ish timestamp without a chrono dependency.
+fn chrono_like_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let total = dur.as_secs();
+    let s = (total % 60) as u32;
+    let m = ((total / 60) % 60) as u32;
+    let h = ((total / 3600) % 24) as u32;
+    let days = total / 86400;
+    format!("days={days} {h:02}:{m:02}:{s:02}Z")
 }
 
 /// Tauri command: cancel a running job by video_id.
