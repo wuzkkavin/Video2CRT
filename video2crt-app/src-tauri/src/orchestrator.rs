@@ -832,6 +832,12 @@ async fn download_with_ytdlp(
         .arg("--merge-output-format")
         .arg("mp4")
         .arg("--no-part") // write final file directly so partial files don't satisfy .exists() checks downstream
+        .arg("--no-playlist") // user pastes the URL with extra query params
+        // like ?start_radio=1 or ?list=...; without --no-playlist
+        // yt-dlp enters playlist mode and tries to download the whole
+        // list, which (a) is way slower than the user expected and
+        // (b) produces an Errno 22 Invalid argument when the playlist
+        // entries don't fit the %(ext)s template we set above.
         .arg(url)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
