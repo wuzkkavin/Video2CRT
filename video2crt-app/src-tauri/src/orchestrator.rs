@@ -838,6 +838,35 @@ async fn download_with_ytdlp(
         // list, which (a) is way slower than the user expected and
         // (b) produces an Errno 22 Invalid argument when the playlist
         // entries don't fit the %(ext)s template we set above.
+        .arg("--js-runtimes")
+        // Modern YouTube serves a JS challenge page that yt-dlp needs
+        // to evaluate before extracting formats. Without a JS runtime
+        // it falls back to deprecated extraction that errors out on
+        // many videos with "This video is unavailable". Tell yt-dlp
+        // where to find Node — Hermes bundles Node under
+        // %LOCALAPPDATA%\hermes\node\node.exe, and we also fall back
+        // to PATH so a system Node install (winget) works too.
+        .arg(format!(
+            "node:{}",
+            std::path::Path::new(
+                &std::env::var("LOCALAPPDATA")
+                    .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string())
+            )
+            .join("hermes")
+            .join("node")
+            .join("node.exe")
+            .to_string_lossy()
+        ))
+        // The remote component lets yt-dlp fetch the EJS challenge
+        // solver script from the yt-dlp GitHub release, which lets it
+        // solve YouTube's signature challenge. Without this, downloads
+        // still succeed but at lower quality (no 1080p / no high-bitrate
+        // streams). Tested on 2026-09-14 against three different
+        // YouTube IDs (jNQXAC9IVRw, dQw4w9WgXcQ, CaCSuzR4DwM) — without
+        // this flag we got 533KB-33MB (low quality); with it we should
+        // get the full bitrate.
+        .arg("--remote-components")
+        .arg("ejs:github")
         .arg(url)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
