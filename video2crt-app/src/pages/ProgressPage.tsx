@@ -16,7 +16,7 @@
  *   6. Cancel button
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StageChip } from "../components/StageChip";
 import type { LogEntry, PipelineStage } from "../lib/types";
 
@@ -77,6 +77,14 @@ export function ProgressPage({
   onCancel,
 }: ProgressPageProps) {
   const logRef = useRef<HTMLDivElement>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Live local clock — ticks every second so the user can see wall
+  // time and elapsed time without blind waiting (user request 2026-09-14).
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Auto-scroll log region to bottom on new lines.
   useEffect(() => {
@@ -88,6 +96,7 @@ export function ProgressPage({
   const pct = Math.max(0, Math.min(1, progress));
   const pctText = `${Math.round(pct * 100)}%`;
   const isError = Boolean(errorMessage);
+  const elapsedMs = logs.length > 0 ? now - logs[0].ts : 0;
 
   return (
     <div className="progress-page">
@@ -141,6 +150,12 @@ export function ProgressPage({
         )}
       </div>
 
+      <div className="local-clock">
+        <span className="local-clock-time">{formatClock(now)}</span>
+        <span className="local-clock-sep">·</span>
+        <span className="local-clock-elapsed">已等待 {formatElapsed(elapsedMs)}</span>
+      </div>
+
       <div className="progress-actions">
         <button
           className="btn btn-danger"
@@ -149,6 +164,15 @@ export function ProgressPage({
         >
           取消
         </button>
+      </div>
+
+      <div className="neon-copyright" aria-label="(c) copyright 2026 by WUZK">
+        <div className="marquee-track" aria-hidden="true">
+          <div className="marquee-inner">
+            <span className="neon-text">(c) copyright 2026 by WUZK — (c) copyright 2026 by WUZK — (c) copyright 2026 by WUZK — (c) copyright 2026 by WUZK —</span>
+            <span className="neon-text" aria-hidden="true">(c) copyright 2026 by WUZK — (c) copyright 2026 by WUZK — (c) copyright 2026 by WUZK — (c) copyright 2026 by WUZK —</span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -166,4 +190,19 @@ function formatTs(ms: number): string {
   const mm = d.getMinutes().toString().padStart(2, "0");
   const ss = d.getSeconds().toString().padStart(2, "0");
   return `${hh}:${mm}:${ss}`;
+}
+
+function formatClock(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
+}
+
+function formatElapsed(ms: number): string {
+  if (ms <= 0) return "00:00";
+  const s = Math.floor(ms / 1000);
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (hh > 0) return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }

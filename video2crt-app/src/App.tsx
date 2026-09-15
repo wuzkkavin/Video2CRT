@@ -61,6 +61,7 @@ const DEFAULT_OPTIONS: JobOptions = {
   // wider than 960 px (e.g. Louis Armstrong BBC TV was actually 1448 wide).
   crop: "",
   asrLanguage: "auto",
+  enableSubtitles: true,
   cloudTranslation: false,
   translationModel: "MiniMax-M3",
   // Empty outputDir → Rust falls back to `<projectRoot>/output/yt_<id>/`.
@@ -265,8 +266,9 @@ export function App() {
           url: stateRef.current.url,
           crop: opts.crop,
           asrLanguage: opts.asrLanguage,
-          cloudTranslation: opts.cloudTranslation,
-          translationModel: opts.cloudTranslation
+          enableSubtitles: opts.enableSubtitles,
+          cloudTranslation: opts.cloudTranslation && opts.enableSubtitles,
+          translationModel: opts.cloudTranslation && opts.enableSubtitles
             ? opts.translationModel
             : null,
           // User-picked output dir from OptionsPage (or empty string

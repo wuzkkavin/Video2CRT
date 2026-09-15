@@ -29,6 +29,9 @@ pub struct StartJobRequest {
     pub crop: Option<String>,
     /// ASR language hint ("ja", "en", "zh", None => auto).
     pub asr_language: Option<String>,
+    /// Whether to generate subtitles at all (default true).
+    #[serde(default = "default_true")]
+    pub enable_subtitles: bool,
     /// Use cloud translation via `Minimax` (default false).
     pub cloud_translation: bool,
     /// Model id for cloud translation (only used when `cloud_translation=true`).
@@ -38,6 +41,10 @@ pub struct StartJobRequest {
     /// (no `yt_<id>` subfolder created). When None, the orchestrator
     /// falls back to `<projectRoot>/output/yt_<id>/`.
     pub output_dir: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Result of a successful job run.

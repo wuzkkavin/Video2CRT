@@ -333,14 +333,19 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px 4px 0;
-  /* At default 760×700 the content fits; at minimum 640×560 (the
-   * tauri.conf.json minWidth/minHeight) it still fits. If the user
-   * resizes the window smaller than minHeight, the OS clips the
-   * window — no in-app scroll bar to confuse the layout. */
-  overflow: hidden;
+  padding: 6px 4px 8px;
+  /* Was `overflow: hidden` which clipped the bottom actions when the
+     options grew (enableSubtitles + cloudTranslation + model + outputDir
+     = 6 fields). Now scroll internally so "開始轉檔 →" is always reachable
+     without maximizing the window. */
+  overflow-y: auto;
+  overflow-x: hidden;
   min-width: 0;
   max-width: 100%;
+  min-height: 0;
+  /* Thin scrollbar so it doesn't push content */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 .options-page h2 {
@@ -610,6 +615,72 @@ textarea {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* Local wall-clock + elapsed — sits just under the log region so the
+   user can see how long they've been waiting without blind waiting. */
+.local-clock {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 4px 0 2px;
+}
+
+.local-clock-time {
+  color: var(--text-dim);
+}
+
+.local-clock-sep {
+  opacity: 0.5;
+}
+
+/* (c) copyright 2026 by WUZK — LED marquee, colorful scrolling */
+.neon-copyright {
+  overflow: hidden;
+  white-space: nowrap;
+  /* no border, transparent — blend into space-black bg */
+  border: none;
+  background: transparent;
+  padding: 6px 0 2px;
+  margin-top: 4px;
+  user-select: none;
+}
+
+.marquee-track {
+  overflow: hidden;
+  width: 100%;
+}
+
+.marquee-inner {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll 12s linear infinite;
+  will-change: transform;
+}
+
+.neon-text {
+  flex-shrink: 0;
+  padding-right: 2rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  /* LED dot-matrix feel + colorful gradient */
+  background: linear-gradient(90deg, #ff3b82 0%, #ff8a00 20%, #ffe600 35%, #00e676 50%, #00b0ff 65%, #7c4dff 80%, #ff3b82 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.85)) drop-shadow(0 0 14px rgba(124, 77, 255, 0.7)) drop-shadow(0 0 28px rgba(0, 176, 255, 0.45));
+}
+
+@keyframes marquee-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 /* ----------------------------- DonePage ----------------------------- */

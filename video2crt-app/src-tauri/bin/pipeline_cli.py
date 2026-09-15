@@ -170,9 +170,13 @@ def chunked_transcribe(
     independently with medium-multilingual (gotcha 7/12) and NO initial_prompt
     (gotcha 14). Returns a list of {start, end, text, ...} segments with
     absolute timestamps."""
-    from faster_whisper import WhisperModel  # imported lazily to keep startup fast
+    try:
+        from faster_whisper import WhisperModel  # imported lazily to keep startup fast
 
-    model = WhisperModel("medium", device="cpu", compute_type="int8")
+        model = WhisperModel("medium", device="cpu", compute_type="int8")
+    except Exception as exc:  # noqa: BLE001
+        emit("asr", 0.0, f"chunked ASR model load failed (skipping gap-fill): {exc}")
+        return []
     duration_s = ffprobe_duration(video)
     if duration_s <= 0:
         return []
@@ -485,13 +489,23 @@ def run(args: dict[str, Any]) -> int:
     emit("srt", 0.10, "building bilingual SRT (gotcha 8: two-line, gotcha 11: ASR-only)")
     # Choose translation source. In cloud mode line 2 starts empty; in local
     # mode we look up `lyrics_translations.json` for any matching line.
+    # In cloud-translation mode (cloudTranslation=true) we leave line 2
+    # empty so a future pass can fill it in. In local mode we still want
+    # to show the ASR verbatim text even when there's no dictionary entry
+    # — otherwise the SRT ends up empty for songs that aren't curated in
+    # `lyrics_translations.json`. The old behaviour skipped the whole
+    # entry when both translation was missing and emit_empty was false,
+    # which is what was leaving every non-curated song with 0 subtitles.
+    # We now always pass emit_empty_translation=True; for local mode we
+    # also pass the local dictionary so line 2 has the curated Chinese
+    # when available.
     translations_for_build: dict[str, str] = (
         {} if cloud_translation else dict(local_translations)
     )
     srt_text = build_srt_two_line(
         merged_segs,
         translations_for_build,
-        emit_empty_translation=cloud_translation,
+        emit_empty_translation=True,
     )
     srt_path = output_dir / "zh-Hant.srt"
     srt_path.write_text(srt_text, encoding="utf-8")

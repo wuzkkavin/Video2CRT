@@ -181,7 +181,11 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     let video_id = derive_video_id(&req.url);
     // Output dir honors req.output_dir if the user picked a folder
     // in OptionsPage; otherwise fall back to the historical default.
-    let output_dir = resolve_output_dir(&req, &project_root);
+    // We capture it as `base_output_dir` because the final working
+    // directory is `base_output_dir / <safe_title>` — user requested
+    // 2026-09-14 that the working folder be named after the video
+    // title (or the user-picked parent + title), not the bare id.
+    let base_output_dir = resolve_output_dir(&req, &project_root);
 
     // Write breadcrumb log at every key step so we can tell where
     // the synchronous part of `start()` dies (if it does) before
@@ -199,10 +203,20 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
             .join("video2crt-startup.log"))
         {
             use std::io::Write as _;
-            let _ = writeln!(f, "[trace] {}", line);
-        }
-    };
-    breadcrumb_log(&format!("A: about to create_dir_all({})", output_dir.display()));
+            let _ = writeln!(f, "[trace] {line}");
+            }
+            };
+            breadcrumb_log(&format!("A: about to create_dir_all({})", base_output_dir.display()));
+
+            // Fetch the video title (best-effort) so we can name the working
+            // directory after the human-readable title instead of `yt_<id>`.
+            // Falls back to `yt_<id>` if metadata fetch fails. Adds ~1-2s
+            // before the download starts.
+            let title = fetch_video_title(&req.url, &video_id).await;
+            breadcrumb_log(&format!("B0: fetched video title: {title}"));
+            let sub_dir_name = safe_dirname(&title, &video_id);
+            let output_dir = base_output_dir.join(&sub_dir_name);
+            breadcrumb_log(&format!("B0.5: output_dir = {}", output_dir.display()));
 
     std::fs::create_dir_all(&output_dir)
         .with_context(|| format!("creating {}", output_dir.display()))?;
@@ -381,36 +395,83 @@ async fn run_pipeline(
     // Stage 4-6: faster-whisper + SRT + burn + mux — delegated to the
     // Python sidecar `pipeline_cli.py` (kept here as a separate process so
     // we don't have to maintain a Rust ASR binding).
-    stage_begin(&app, &handle, "asr", "running faster-whisper via Python sidecar");
-    let sidecar = locate_sidecar();
-    let payload = serde_json::json!({
-        "url": req.url,
-        "outputDir": handle.output_dir,
-        "videoId": handle.video_id,
-        "crop": crop_value,
-        "asrLanguage": req.asr_language,
-        "cloudTranslation": req.cloud_translation,
-        "translationModel": req.translation_model,
-    });
-    let payload_str = serde_json::to_string(&payload)?;
-    match sidecar {
-        Ok(path) => {
-            if let Err(e) = run_sidecar(&app, &handle, &path, &payload_str, &cancel_flag).await {
+    if !req.enable_subtitles {
+        // User unchecked "產生字幕" — skip ASR/SRT/burn entirely. This is
+        // the fast path for pure-music videos (your 5-minute wait case).
+        emit_progress(&app, &handle.video_id, "asr", cumulative("asr"), "skipped (subtitles disabled)", None);
+        stage_done(&app, &handle, "asr");
+        emit_progress(&app, &handle.video_id, "burn", cumulative("burn"), "skipped (subtitles disabled)", None);
+        stage_done(&app, &handle, "burn");
+        // Still need to mux raw.mp4 (CRT) + source.mp4 audio → final.mp4
+        stage_begin(&app, &handle, "mux", "muxing audio + -aspect 16:9 (no subtitles)");
+        let raw = PathBuf::from(&handle.output_dir).join("raw.mp4");
+        let source = PathBuf::from(&handle.output_dir).join("source.mp4");
+        let final_mp4 = PathBuf::from(&handle.output_dir).join("final.mp4");
+        // Reuse Python mux helper would require sidecar; do it directly
+        // with ffmpeg (same args as mux_audio_local).
+        let mux_status = cmd_no_window(locate_ffmpeg().await?)
+            .arg("-y")
+            .arg("-i")
+            .arg(&raw)
+            .arg("-i")
+            .arg(&source)
+            .arg("-map")
+            .arg("0:v")
+            .arg("-map")
+            .arg("1:a")
+            .arg("-c:v")
+            .arg("copy")
+            .arg("-c:a")
+            .arg("aac")
+            .arg("-b:a")
+            .arg("192k")
+            .arg("-aspect")
+            .arg("16:9")
+            .arg("-shortest")
+            .arg(&final_mp4)
+            .current_dir(Path::new(&handle.output_dir))
+            .status()
+            .await;
+        match mux_status {
+            Ok(s) if s.success() => {}
+            _ => {
+                // Fallback: copy raw.mp4 as final (no audio)
+                let _ = tokio::fs::copy(&raw, &final_mp4).await;
+            }
+        }
+        stage_done(&app, &handle, "mux");
+    } else {
+        stage_begin(&app, &handle, "asr", "running faster-whisper via Python sidecar");
+        let sidecar = locate_sidecar();
+        let payload = serde_json::json!({
+            "url": req.url,
+            "outputDir": handle.output_dir,
+            "videoId": handle.video_id,
+            "crop": crop_value,
+            "asrLanguage": req.asr_language,
+            "cloudTranslation": req.cloud_translation,
+            "translationModel": req.translation_model,
+        });
+        let payload_str = serde_json::to_string(&payload)?;
+        match sidecar {
+            Ok(path) => {
+                if let Err(e) = run_sidecar(&app, &handle, &path, &payload_str, &cancel_flag).await {
+                    stage_error(&app, &handle, "asr", &e);
+                    return Err(e);
+                }
+            }
+            Err(e) => {
                 stage_error(&app, &handle, "asr", &e);
                 return Err(e);
             }
         }
-        Err(e) => {
-            stage_error(&app, &handle, "asr", &e);
-            return Err(e);
-        }
+        // sidecar emits its own asr/burn/mux progress; mark them done in series.
+        stage_done(&app, &handle, "asr");
+        stage_begin(&app, &handle, "burn", "burning subtitles");
+        stage_done(&app, &handle, "burn");
+        stage_begin(&app, &handle, "mux", "muxing audio + -aspect 16:9");
+        stage_done(&app, &handle, "mux");
     }
-    // sidecar emits its own asr/burn/mux progress; mark them done in series.
-    stage_done(&app, &handle, "asr");
-    stage_begin(&app, &handle, "burn", "burning subtitles");
-    stage_done(&app, &handle, "burn");
-    stage_begin(&app, &handle, "mux", "muxing audio + -aspect 16:9");
-    stage_done(&app, &handle, "mux");
 
     emit_progress(
         &app,
@@ -492,6 +553,13 @@ async fn run_sidecar(
         let site_pkgs = format!("{}/Lib/site-packages", venv_root);
         cmd.env("PYTHONPATH", site_pkgs);
     }
+    // Force UTF-8 stdio on Windows. Without this, Python on a Traditional
+    // Chinese (cp950) system tries to encode `\ufffd` (a replacement
+    // character produced when the JSON/SRT writer hits invalid UTF-8) as
+    // cp950 and crashes with `UnicodeEncodeError` — even though the file
+    // we wrote is already on disk and the pipeline finished successfully.
+    cmd.env("PYTHONIOENCODING", "utf-8");
+    cmd.env("PYTHONUTF8", "1");
 
     let mut child = cmd
         .arg(py_script)
@@ -522,6 +590,26 @@ async fn run_sidecar(
     // those with U+FFFD so the read keeps going.
     let mut reader = BufReader::new(stdout);
     let mut buf: Vec<u8> = Vec::with_capacity(512);
+    // Spawn a background watcher that kills the child within 200ms of
+    // the user pressing Cancel. Without this, `cancel_flag` is only
+    // checked when a new line arrives — and `faster-whisper` can be
+    // silent for 8+ minutes, so Cancel appears to do nothing and the
+    // user has to kill the whole app.
+    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> =
+        Arc::new(Mutex::new(Some(child)));
+    let cancel_flag_clone = cancel_flag.clone();
+    let child_for_watch = child_arc.clone();
+    let watcher = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            if *cancel_flag_clone.lock().await {
+                if let Some(c) = child_for_watch.lock().await.as_mut() {
+                    let _ = c.kill().await;
+                }
+                break;
+            }
+        }
+    });
     loop {
         buf.clear();
         let n = reader.read_until(b'\n', &mut buf).await?;
@@ -530,8 +618,12 @@ async fn run_sidecar(
             break;
         }
         // Cancel check on every line so user-cancel stays responsive.
+        // The background `watcher` already handles the silent-ASR case,
+        // but we keep this fast-path here as well.
         if *cancel_flag.lock().await {
-            let _ = child.kill().await;
+            if let Some(c) = child_arc.lock().await.as_mut() {
+                let _ = c.kill().await;
+            }
             anyhow::bail!("cancelled by user");
         }
         let line = String::from_utf8_lossy(&buf)
@@ -581,6 +673,8 @@ async fn run_sidecar(
             );
         }
     }
+    watcher.abort();
+    let mut child = child_arc.lock().await.take().expect("child already taken");
     let status = child.wait().await?;
     if !status.success() {
         anyhow::bail!("sidecar exited with {status:?}");
@@ -762,6 +856,140 @@ fn derive_video_id(url: &str) -> String {
     s
 }
 
+/// Sanitize a YouTube video title into a safe directory name on
+/// Windows. Strips characters illegal in NTFS file names (`<>:"/\|?*`)
+/// AND shell metacharacters that break `yt-dlp -o` template expansion
+/// on Windows (`& , ;` confuse both `CommandLineToArgvW` parsing and
+/// yt-dlp's internal `%(ext)s` substitution, producing `[Errno 22]
+/// Invalid argument` from the subprocess), collapses whitespace to
+/// single underscores, trims leading/trailing dots and spaces, and
+/// falls back to the video id if the result is empty (e.g. the title
+/// was only punctuation).
+fn safe_dirname(raw_title: &str, video_id: &str) -> String {
+    let mut out: String = raw_title
+        .chars()
+        .map(|c| match c {
+            // NTFS-illegal characters.
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            // Shell metacharacters that confuse yt-dlp -o templates
+            // and Windows CreateProcess argv parsing.
+            '&' | ',' | ';' | '\'' | '`' | '$' | '(' | ')' | '{' | '}' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    // Collapse runs of whitespace and underscores into a single underscore.
+    let mut collapsed = String::with_capacity(out.len());
+    let mut prev_underscore = false;
+    for ch in out.chars() {
+        if ch.is_whitespace() || ch == '_' {
+            if !prev_underscore && !collapsed.is_empty() {
+                collapsed.push('_');
+                prev_underscore = true;
+            }
+        } else {
+            collapsed.push(ch);
+            prev_underscore = false;
+        }
+    }
+    // Trim trailing dots / spaces — Windows refuses file names ending
+    // in `.` or ` `.
+    while collapsed.ends_with('.') || collapsed.ends_with(' ') {
+        collapsed.pop();
+    }
+    let trimmed = collapsed.trim_matches(|c: char| c == '_').to_string();
+    if trimmed.is_empty() {
+        format!("yt_{video_id}")
+    } else {
+        // NTFS path length limit is 260 chars; keep this safe.
+        trimmed.chars().take(120).collect()
+    }
+}
+
+/// Fetch the video title via a metadata-only yt-dlp invocation. We
+/// do this BEFORE the real download so we can build the output
+/// directory using the human-readable title. Fails open to the
+/// video id if the metadata call errors (network blip, age-gate,
+/// unavailable) so the pipeline still completes.
+async fn fetch_video_title(url: &str, video_id: &str) -> String {
+    // Try each yt-dlp candidate from the same lookup table
+    // download_with_ytdlp uses (kept short here — metadata fetch is
+    // best-effort and we don't want a long lookup failure delay).
+    let candidates = [
+        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
+        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/Scripts/yt-dlp.exe",
+        "yt-dlp",
+    ];
+    let localappdata = std::env::var("LOCALAPPDATA")
+        .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string());
+    let node_exe = format!(
+        "{}",
+        std::path::Path::new(&localappdata)
+            .join("hermes")
+            .join("node")
+            .join("node.exe")
+            .to_string_lossy()
+    );
+    // Hard 5s cap on the whole title-fetch attempt. Playlist URLs
+    // (e.g. `&list=RDxxx&start_radio=1`) make yt-dlp try to resolve
+    // the entire mix, which can hang indefinitely. If we can't get
+    // the title in 5s, fall back to `yt_<id>` rather than block the
+    // whole pipeline — the title is decorative, not functional.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        async {
+            for bin in &candidates {
+                if *bin != "yt-dlp" && !std::path::Path::new(bin).exists() {
+                    continue;
+                }
+                let mut cmd = cmd_no_window(bin);
+                cmd.env_remove("PYTHONPATH"); // not needed for metadata fetch
+                // NO `PYTHONIOENCODING=utf-8` here — yt-dlp's already-bound
+                // `sys.stdout` writer ignores it anyway, but setting it
+                // makes yt-dlp try to re-encode progress strings as UTF-8
+                // and crash with `[Errno 22] Invalid argument` on cp950
+                // consoles when a non-cp950 byte (e.g. `×`) shows up.
+                // We rely on piped stdout + strict `from_utf8` decode in
+                // Rust instead.
+                if let Ok(out) = cmd
+                    .arg("--no-playlist") // never expand `list=RD...` to a mix
+                    .arg("--skip-download")
+                    .arg("--js-runtimes")
+                    .arg(format!("node:{}", node_exe))
+                    .arg("--remote-components")
+                    .arg("ejs:github")
+                    .arg("--print")
+                    .arg("title")
+                    .arg(url)
+                    .output()
+                    .await
+                {
+                    if out.status.success() {
+                        // Strict UTF-8 decode. `from_utf8_lossy` would
+                        // inject U+FFFD for invalid bytes, and that
+                        // replacement character then leaks into the
+                        // output directory name as `?` on NTFS.
+                        // Decoding failures are non-fatal — we just
+                        // fall through to the next candidate.
+                        if let Ok(s) = std::str::from_utf8(&out.stdout) {
+                            let title = s.trim().to_string();
+                            if !title.is_empty() && title.len() < 256 {
+                                return Some(title);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        },
+    )
+    .await;
+    match result {
+        Ok(Some(title)) => title,
+        _ => format!("yt_{video_id}"),
+    }
+}
+
 /// Stage 1: invoke yt-dlp to download the source video.
 ///
 /// Strategy: pick the first yt-dlp binary that exists on disk (no more
@@ -827,8 +1055,10 @@ async fn download_with_ytdlp(
     let mut child = cmd_no_window(bin)
         .arg("-o")
         .arg(format!("{}/source.%(ext)s", outdir.display()))
+        // Don't pin to mp4 only - YouTube serves vp9/av1/opus/webm as well.
+        // Let yt-dlp pick best video+audio and we re-mux to mp4 ourselves.
         .arg("-f")
-        .arg("bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]")
+        .arg("bv*+ba/b")
         .arg("--merge-output-format")
         .arg("mp4")
         .arg("--no-part") // write final file directly so partial files don't satisfy .exists() checks downstream
@@ -1009,12 +1239,54 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
     let vf = format!(
         "crop={crop},libplacebo=custom_shader_path=crt.glsl:w=1920:h=1080:fps=30:force_original_aspect_ratio=0"
     );
-    let status = cmd_no_window(ffmpeg)
-        .arg("-y")
-        .arg("-hwaccel")
-        .arg("cuda")
-        .arg("-c:v")
-        .arg("vp9_cuvid")
+    // Probe source codec first, then pick the right hw decoder.
+    // Previous code forced `-hwaccel cuda -c:v vp9_cuvid` for all inputs,
+    // which ACCESS_VIOLATIONs (0xC0000005) on h264/av1/hevc sources.
+    let probe = cmd_no_window(&ffmpeg)
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v:0")
+        .arg("-show_entries")
+        .arg("stream=codec_name")
+        .arg("-of")
+        .arg("default=nw=1:nk=1")
+        .arg(source)
+        .output()
+        .await;
+    let codec = probe
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_ascii_lowercase())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+    let mut cmd = cmd_no_window(ffmpeg);
+    cmd.arg("-y");
+    // Only use cuda hwaccel with a matching cuvid decoder; otherwise
+    // fall back to software decode. This mirrors `ffprobe → decoder` logic.
+    match codec.as_str() {
+        "h264" | "avc" => {
+            cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("h264_cuvid");
+        }
+        "hevc" | "h265" => {
+            cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("hevc_cuvid");
+        }
+        "vp9" => {
+            cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("vp9_cuvid");
+        }
+        "av1" => {
+            cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("av1_cuvid");
+        }
+        _ => {
+            // Unknown codec or probe failed → software decode (always safe)
+            cmd.arg("-hwaccel").arg("auto");
+        }
+    }
+    let status = cmd
         .arg("-i")
         .arg(source)
         .arg("-vf")

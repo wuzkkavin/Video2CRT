@@ -32,6 +32,9 @@ export function OptionsPage({
   const [crop, setCrop] = useState(defaultOptions.crop);
   const [asrLanguage, setAsrLanguage] =
     useState<JobOptions["asrLanguage"]>(defaultOptions.asrLanguage);
+  const [enableSubtitles, setEnableSubtitles] = useState(
+    defaultOptions.enableSubtitles,
+  );
   const [cloudTranslation, setCloudTranslation] = useState(
     defaultOptions.cloudTranslation,
   );
@@ -43,12 +46,22 @@ export function OptionsPage({
   // the dialog, we store its absolute path here and ship it to Rust.
   const [outputDir, setOutputDir] = useState(defaultOptions.outputDir);
 
+  // Local in-flight guard. Once the user clicks 開始轉檔, we lock the
+  // button immediately so a double-tap can't fire a second
+  // `start_job` IPC — which would spawn a second `yt-dlp`/ffmpeg/ASR
+  // pipeline against the same output dir, corrupting `source.mp4`
+  // and crashing the GPU encoder (`0xC0000005`).
+  const [starting, setStarting] = useState(false);
+
   const handleStart = () => {
+    if (starting) return;
+    setStarting(true);
     onStart({
       crop: crop.trim(),
       asrLanguage,
-      cloudTranslation,
-      translationModel: cloudTranslation ? translationModel : "",
+      enableSubtitles,
+      cloudTranslation: enableSubtitles && cloudTranslation,
+      translationModel: enableSubtitles && cloudTranslation ? translationModel : "",
       outputDir: outputDir.trim(),
     });
   };
@@ -110,6 +123,7 @@ export function OptionsPage({
           onChange={(e) =>
             setAsrLanguage(e.target.value as JobOptions["asrLanguage"])
           }
+          disabled={!enableSubtitles}
         >
           <option value="auto">自動偵測 (auto)</option>
           <option value="ja">日本語 (ja)</option>
@@ -121,10 +135,26 @@ export function OptionsPage({
       <div className="field">
         <div className="checkbox-row">
           <input
+            id="enable-subtitles"
+            type="checkbox"
+            checked={enableSubtitles}
+            onChange={(e) => setEnableSubtitles(e.target.checked)}
+          />
+          <label htmlFor="enable-subtitles">產生字幕（ASR）</label>
+        </div>
+        <span className="field-hint">
+          關閉則跳過語音辨識與字幕燒錄，直接輸出 CRT 濾鏡後的影片。適合純音樂。
+        </span>
+      </div>
+
+      <div className="field">
+        <div className="checkbox-row">
+          <input
             id="cloud-translation"
             type="checkbox"
             checked={cloudTranslation}
             onChange={(e) => setCloudTranslation(e.target.checked)}
+            disabled={!enableSubtitles}
           />
           <label htmlFor="cloud-translation">
             啟用雲端翻譯（透過 Minimax API）
@@ -139,9 +169,9 @@ export function OptionsPage({
           className="select"
           value={translationModel}
           onChange={(e) => setTranslationModel(e.target.value)}
-          disabled={!cloudTranslation}
+          disabled={!enableSubtitles || !cloudTranslation}
         >
-          {cloudTranslation ? null : <option value="">(請先啟用雲端翻譯)</option>}
+          {enableSubtitles && cloudTranslation ? null : <option value="">(請先啟用字幕與雲端翻譯)</option>}
           <option value="MiniMax-M3">MiniMax-M3 (default, 1M ctx)</option>
           <option value="MiniMax-M2.7">MiniMax-M2.7</option>
           <option value="MiniMax-M2.7-highspeed">MiniMax-M2.7-highspeed</option>
@@ -195,8 +225,13 @@ export function OptionsPage({
             ⚙ 設定
           </button>
         </div>
-        <button className="btn btn-primary" onClick={handleStart}>
-          開始轉檔 →
+        <button
+          className="btn btn-primary"
+          onClick={handleStart}
+          disabled={starting}
+          style={starting ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+        >
+          {starting ? "轉檔中…" : "開始轉檔 →"}
         </button>
       </div>
     </div>

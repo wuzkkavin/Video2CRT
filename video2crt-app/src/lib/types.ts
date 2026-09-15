@@ -25,7 +25,9 @@ export interface StartJobRequest {
   crop?: string | null;
   /** ASR language hint: "ja" | "en" | "zh" | "auto". */
   asrLanguage?: string | null;
-  /** Use cloud translation via Minimax (default false). */
+  /** Whether to generate subtitles at all (default true). If false, ASR/SRT/burn are skipped and raw.mp4 is muxed directly. */
+  enableSubtitles?: boolean | null;
+  /** Use cloud translation via Minimax (default false). Only meaningful when enableSubtitles=true. */
   cloudTranslation: boolean;
   /** Model id for cloud translation (required when cloudTranslation=true). */
   translationModel?: string | null;
@@ -112,6 +114,7 @@ export interface LogEntry {
 export interface JobOptions {
   crop: string;
   asrLanguage: "auto" | "ja" | "en" | "zh";
+  enableSubtitles: boolean;
   cloudTranslation: boolean;
   translationModel: string;
   /**
