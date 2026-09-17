@@ -207,12 +207,139 @@ fn classify(id: &str) -> String {
     let lower = id.to_lowercase();
     if lower.contains("speech") || lower.contains("tts") {
         "speech".into()
-    } else if lower.contains("h3")
-        || lower.starts_with("hailuo")
-        || lower.contains("video")
-    {
+    } else if lower.contains("h3") || lower.starts_with("hailuo") || lower.contains("video") {
         "video".into()
     } else {
         "language".into()
+    }
+}
+
+// ---------- Translation runtime ------------------------------------------
+
+#[derive(Debug, Serialize)]
+struct ChatRequest<'a> {
+    model: &'a str,
+    messages: Vec<ChatMessage<'a>>,
+    temperature: f32,
+}
+
+#[derive(Debug, Serialize)]
+struct ChatMessage<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatResponse {
+    choices: Vec<ChatChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatChoice {
+    message: ChatResponseMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatResponseMessage {
+    content: String,
+}
+
+/// Translate `text` from its source language (Whisper ASR writes
+/// whatever the speaker used) into Traditional Chinese via the
+/// configured Minimax model. Returns the translated string on
+/// success, or an error if the API key is missing, the HTTP call
+/// fails, the response body cannot be parsed, or the model returns
+/// an empty `choices[0].message.content`.
+pub async fn translate_text(text: &str, model: &str) -> anyhow::Result<String> {
+    let key = match super::settings::get_api_key() {
+        Some(k) if !k.is_empty() => k,
+        _ => anyhow::bail!("no api key configured"),
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS * 4))
+        .build()?;
+    let sys_prompt = "You are a subtitle translator. Translate the user's text into Traditional Chinese (zh-Hant). Output ONLY the translation, no quotes, no explanation, no leading labels. Preserve line breaks if any.";
+    let req = ChatRequest {
+        model,
+        messages: vec![
+            ChatMessage {
+                role: "system",
+                content: sys_prompt,
+            },
+            ChatMessage {
+                role: "user",
+                content: text,
+            },
+        ],
+        temperature: 0.2,
+    };
+    let resp = client
+        .post(format!("{BASE_URL}/chat/completions"))
+        .bearer_auth(&key)
+        .header("Accept", "application/json")
+        .json(&req)
+        .send()
+        .await?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("translate endpoint returned {status}: {body}");
+    }
+    let parsed: ChatResponse = resp.json().await?;
+    let content = parsed
+        .choices
+        .first()
+        .map(|c| c.message.content.trim().to_string())
+        .unwrap_or_default();
+    clean_subtitle_translation(&content, text)
+}
+
+/// A subtitle may contain only the translated line. Some reasoning-capable
+/// models emit an internal `<think>...</think>` block despite the prompt; it
+/// must never reach an SRT or become visible in the video.
+fn clean_subtitle_translation(raw: &str, source: &str) -> anyhow::Result<String> {
+    let mut output = raw.trim().to_string();
+    loop {
+        let lower = output.to_ascii_lowercase();
+        let Some(start) = lower.find("<think>") else { break };
+        let Some(end_relative) = lower[start + 7..].find("</think>") else {
+            anyhow::bail!("翻譯服務回傳未結束的思考內容，已拒絕燒錄字幕");
+        };
+        let end = start + 7 + end_relative + "</think>".len();
+        output.replace_range(start..end, "");
+    }
+    let output = output.split_whitespace().collect::<Vec<_>>().join(" ");
+    if output.is_empty() {
+        anyhow::bail!("翻譯服務未回傳可用的繁中字幕");
+    }
+    let max_length = (source.chars().count() * 6 + 40).max(80);
+    if output.chars().count() > max_length {
+        anyhow::bail!("翻譯結果異常過長，已拒絕燒錄字幕");
+    }
+    if !output.chars().any(|c| ('\u{3400}'..='\u{9fff}').contains(&c)) {
+        anyhow::bail!("翻譯服務未回傳繁體中文字幕");
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_subtitle_translation;
+
+    #[test]
+    fn thought_blocks_are_never_returned_as_subtitles() {
+        assert_eq!(
+            clean_subtitle_translation(
+                "<think>Explain the translation at length.</think> 拜託！",
+                "C'mon!",
+            )
+            .unwrap(),
+            "拜託！"
+        );
+    }
+
+    #[test]
+    fn giant_explanations_are_rejected() {
+        assert!(clean_subtitle_translation(&"說明".repeat(100), "短句").is_err());
     }
 }

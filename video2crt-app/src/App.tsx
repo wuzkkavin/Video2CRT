@@ -62,9 +62,11 @@ const DEFAULT_OPTIONS: JobOptions = {
   crop: "",
   asrLanguage: "auto",
   enableSubtitles: true,
+  subtitleMode: "bilingual",
+  translationMode: "local",
   cloudTranslation: false,
   translationModel: "MiniMax-M3",
-  // Empty outputDir → Rust falls back to `<projectRoot>/output/yt_<id>/`.
+  // Empty outputDir → Rust uses `<Desktop>/<video title>/`.
   // The OptionsPage offers a folder picker; if the user picks one we
   // store the absolute path here and ship it with start_job.
   outputDir: "",
@@ -77,6 +79,7 @@ interface AppState {
   url: string;
   options: JobOptions;
   videoId: string | null;
+  videoTitle: string | null;
   progress: number;
   currentStage: PipelineStage | null;
   message: string;
@@ -92,6 +95,7 @@ type Action =
   | {
       type: "JOB_STARTED";
       videoId: string;
+      videoTitle: string;
     }
   | {
       type: "PROGRESS";
@@ -109,6 +113,7 @@ const initialState: AppState = {
   url: "",
   options: DEFAULT_OPTIONS,
   videoId: null,
+  videoTitle: null,
   progress: 0,
   currentStage: null,
   message: "",
@@ -130,6 +135,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         page: "progress",
         videoId: action.videoId,
+        videoTitle: action.videoTitle,
         progress: 0,
         currentStage: "init",
         message: "已啟動，等待後端…",
@@ -184,6 +190,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "ERROR":
       return {
         ...state,
+        page: "progress",
         errorMessage: action.message,
       };
     case "RESET":
@@ -267,15 +274,19 @@ export function App() {
           crop: opts.crop,
           asrLanguage: opts.asrLanguage,
           enableSubtitles: opts.enableSubtitles,
-          cloudTranslation: opts.cloudTranslation && opts.enableSubtitles,
-          translationModel: opts.cloudTranslation && opts.enableSubtitles
+          subtitleMode: opts.subtitleMode,
+          translationMode: opts.translationMode,
+          cloudTranslation: (opts.translationMode === "cloudFallback" || opts.translationMode === "cloud")
+            && opts.subtitleMode === "bilingual",
+          translationModel: opts.cloudTranslation && opts.subtitleMode === "bilingual"
             ? opts.translationModel
             : null,
           // User-picked output dir from OptionsPage (or empty string
-          // → Rust falls back to <projectRoot>/output/yt_<id>).
+          // → Rust uses <projectRoot>/output/<video title>).
           outputDir: opts.outputDir.trim() === "" ? null : opts.outputDir,
         });
-        dispatch({ type: "JOB_STARTED", videoId: handle.videoId });
+        const title = handle.outputDir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "未命名影片";
+        dispatch({ type: "JOB_STARTED", videoId: handle.videoId, videoTitle: title });
       } catch (e: unknown) {
         dispatch({ type: "ERROR", message: errString(e) });
       }
@@ -323,7 +334,7 @@ export function App() {
             defaultOptions={state.options}
             onBack={handleBack}
             onOpenSettings={() => setSettingsOpen(true)}
-            onStart={(opts) => void handleOptionsStart(opts)}
+            onStart={handleOptionsStart}
           />
         ) : null}
 
@@ -334,7 +345,9 @@ export function App() {
             message={state.message}
             logs={state.logs}
             errorMessage={state.errorMessage}
+            videoTitle={state.videoTitle}
             onCancel={() => void handleCancel()}
+            onRestart={handleRestart}
           />
         ) : null}
 

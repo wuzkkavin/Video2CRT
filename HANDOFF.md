@@ -28,7 +28,7 @@
 如果用戶丟新 URL 給你：
 
 1. **立即**跑 `python scripts/install_skill.py`（**即使這對話已經跑過**, 同專案也要再跑一次 — gotcha 21)
-2. **工作目錄必須是**：`C:\Users\<you>\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
+2. **工作目錄必須是**：`<使用者家目錄>\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
 3. 跑 `docs/workflow.md` 的 Stage 1-11
 4. 自動套用 skill `video-crt-geom-libplacebo` 的所有 gotcha（共 **23 個**：gotcha 0 pre-flight + 1-20 main + 21 MANDATORY pre-flight + 22 MANDATORY output dir)
 5. **顯式宣告** `Found N gotchas in SKILL.md` 證明你已驗證
@@ -37,7 +37,7 @@
 ## 工作目錄結構（這是關鍵）
 
 ```
-C:\Users\<you>\Documents\Hermes\Video2CRT\
+<使用者家目錄>\Documents\Hermes\Video2CRT\
 ├── README.md / LICENSE / VERSION / Makefile    ← 專案 meta
 ├── docs/                                         ← 所有詳細文件
 ├── scripts/                                      ← CLI tools
@@ -65,7 +65,7 @@ handoff.md              # 該影片處理筆記（如果複雜）
 
 ## Skill 載入
 
-skill 本體：`C:\Users\<you>\AppData\Local\hermes\skills\video-crt-geom-libplacebo\SKILL.md`
+skill 本體：`<使用者家目錄>\AppData\Local\hermes\skills\video-crt-geom-libplacebo\SKILL.md`
 
 GitHub mirror: `https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md`
 
@@ -206,12 +206,12 @@ Phase 1 orchestrator → 2 translation → 3 GUI 骨架 → 4 worker queue → 5
 ## 重要：井水不犯河水
 
 **Video2CRT 專案只 touch 以下路徑**：
-- `C:\Users\<you>\Documents\Hermes\Video2CRT\`（工作目錄）
-- `C:\Users\<you>\AppData\Local\hermes\skills\video-crt-geom-libplacebo\`（skill 定義）
-- `C:\Users\<you>\AppData\Local\hermes\Video2CRT\`（HermesFullSetup mirror 子目錄）
+- `<使用者家目錄>\Documents\Hermes\Video2CRT\`（工作目錄）
+- `<使用者家目錄>\AppData\Local\hermes\skills\video-crt-geom-libplacebo\`（skill 定義）
+- `<使用者家目錄>\AppData\Local\hermes\Video2CRT\`（HermesFullSetup mirror 子目錄）
 
 **不要碰**：
-- `C:\Users\<you>\opencode\workspace\opencode-full-setup\`（OpenCode CLI 工作目錄 —— 另一條 worktree）
+- `<使用者家目錄>\opencode\workspace\opencode-full-setup\`（OpenCode CLI 工作目錄 —— 另一條 worktree）
 - 任何其他 local git repo
 
 ## ⚠ 顯示檔案給用戶：永遠用 MEDIA: token
@@ -226,7 +226,7 @@ Phase 1 orchestrator → 2 translation → 3 GUI 骨架 → 4 worker queue → 5
 
 **範例**：
 ```
-MEDIA: C:\Users\<you>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
+MEDIA: <使用者家目錄>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 ```
 
 **為什麼 agent 容易忘**：MEDIA: 看起來像純文字字串，agent 直覺會 echo 到 terminal。但 Hermes Desktop 是**解析 agent 對話訊息**（不是 terminal 輸出）。
@@ -237,3 +237,42 @@ MEDIA: C:\Users\<you>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 
 最後更新：2026-09-06（v0.5.0 重新組織 + MEDIA: token 規則）
 對話交接紀念：30 個 gotcha 已固化 + MEDIA: token 規則。專案結構：方案 C + MIT License。
+
+---
+
+## 2026-09-17 Video2CRT 字幕與翻譯收工紀錄
+
+### 已完成
+
+- 字幕輸出可選：只有原文、原文加繁體中文、無字幕；中文原片只保留繁中單行。
+- 翻譯可選：本機翻譯、本機失敗時雲端備援、純雲端翻譯。純雲端或雲端備援未設定憑證時，介面會直接帶往設定畫面。
+- 雲端憑證以 Windows Credential Manager 保存；輸入欄位採密碼遮罩，未設定憑證時本機功能仍可使用。
+- 修正雲端回傳思考內容或非繁中文字時被帶入字幕的情形；不合格翻譯會被拒絕。
+- 修正 faster-whisper 在低解析音樂影片的單字時間戳空陣列錯誤：僅針對該錯誤，自動關閉單字時間戳並以本機 ASR 重試。
+- 字幕燒錄改用與 CRT 主轉檔相同的 libx264 CRF 18，避免低解析來源因第二次編碼而明顯變糊。
+- 預設輸出為桌面下以影片標題命名的新資料夾；既有資料不覆寫、不使用 YouTube ID 當資料夾名稱。
+
+### 本次異動
+
+- Tauri 編排、Windows 憑證保存與 MiniMax 翻譯防護。
+- Python 字幕處理、YouTube 原語字幕選擇、本機翻譯與 ASR 備援。
+- 選項頁、進度頁與型別定義。
+- 字幕契約回歸測試、既有環境檢查的 yt-dlp 路徑辨識。
+- 內嵌 OpenCC 繁簡轉換資料；不含使用者資料或憑證。
+
+### 驗證
+
+- `python -m unittest scripts/test_subtitle_contract.py -q`：26 項通過。
+- `npm run build`：通過。
+- `cargo test --lib`：9 項通過。
+- `python tests/run_all.py`：13 項通過（已更新 yt-dlp 偵測路徑）。
+
+### Git 狀態與提交範圍
+
+- 僅提交應用程式、測試、必要離線 OpenCC 資料與本交接文件。
+- 不提交既有的影片輸出、刪除紀錄、原始影音、暫存檔、日誌或任何憑證。
+
+### 已知限制與下一步
+
+- 低品質原始影片的細節上限仍受原始來源限制；本次修正的是字幕燒錄不再額外降低畫質。
+- 建議下一次以一支低解析影片分別測試原文、雙語本機、雙語純雲端三種模式，確認字幕內容與畫質的實機觀感。

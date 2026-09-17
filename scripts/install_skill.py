@@ -93,6 +93,9 @@ def verify_dependencies() -> list[str]:
         ],
         "yt-dlp": [
             "yt-dlp",
+            # Video2CRT uses the Hermes agent virtual environment when the
+            # executable is not globally on PATH.
+            "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
             "/c/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
             "C:/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
             "/c/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",

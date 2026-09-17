@@ -32,14 +32,19 @@ pub struct StartJobRequest {
     /// Whether to generate subtitles at all (default true).
     #[serde(default = "default_true")]
     pub enable_subtitles: bool,
+    /// "original" | "bilingual" | "none". Missing values retain the
+    /// historical bilingual behaviour for older frontends.
+    pub subtitle_mode: Option<String>,
+    /// "local" | "cloudFallback" | "cloud". Missing values retain the
+    /// historical local-first behaviour for older frontends.
+    pub translation_mode: Option<String>,
     /// Use cloud translation via `Minimax` (default false).
     pub cloud_translation: bool,
     /// Model id for cloud translation (only used when `cloud_translation=true`).
     pub translation_model: Option<String>,
-    /// Optional output directory for `source.mp4 / raw.mp4 / *.srt /
-    /// final.mp4`. When Some, files are written into this dir directly
-    /// (no `yt_<id>` subfolder created). When None, the orchestrator
-    /// falls back to `<projectRoot>/output/yt_<id>/`.
+    /// Optional parent output directory. The orchestrator creates a new,
+    /// non-overwriting child folder named after the YouTube video title.
+    /// When None, the parent defaults to `<projectRoot>/output/`.
     pub output_dir: Option<String>,
 }
 
@@ -178,6 +183,7 @@ pub fn run() {
             // Register a global so commands that need an AppHandle without
             // being passed one (rare) can still reach it.
             app.manage(orchestrator::JobRegistry::default());
+            app.manage(orchestrator::AsrGate::default());
             // Fire one startup event so the React side can do "is api key set"
             // without an explicit call.
             let _ = app.emit("pipeline://ready", ());

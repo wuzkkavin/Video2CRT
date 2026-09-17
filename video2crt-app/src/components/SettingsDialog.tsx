@@ -149,7 +149,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               ref={inputRef}
               className="input"
               type="password"
-              autoComplete="off"
+              autoComplete="new-password"
               spellCheck={false}
               placeholder={
                 hasKey ? "已儲存（輸入新值可覆蓋）" : "貼上你的 API key"
@@ -162,7 +162,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               }}
             />
             <span className="field-hint">
-              用途：雲端字幕翻譯（選填）。影片轉檔本身不需要 key。
+              用途：雲端字幕翻譯（選填）。影片轉檔與本機翻譯不需要 Key。
             </span>
           </div>
 
@@ -214,7 +214,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
           </div>
           <div className="right">
             <span className="dialog-note">
-              API key 只用於雲端翻譯，儲存在 Windows Credential Manager。
+              API Key 會加密儲存在 Windows Credential Manager；重新開啟時只顯示是否已設定，不會把內容載回畫面。
             </span>
             <button
               className="btn btn-primary"

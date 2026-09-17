@@ -13,11 +13,10 @@ Where `<json-args>` is a JSON object with the following keys:
                         output metadata only — the Rust side already used it
                         for the raw.mp4 render
     asrLanguage         Optional Whisper language hint ("ja", "en", "zh", None)
-    cloudTranslation    bool — if true, line 2 of SRT is left empty for the
-                        cloud translation pass to fill in. If false, line 2
-                        comes from `lyrics_translations.json` local lookup.
+    cloudTranslation    bool — use Rust translation between prepare/finalize.
+                        Otherwise use the local multilingual model.
     translationModel    Cloud translation model id (informational, stored in
-                        handoff.md; actual cloud pass is the React side's job)
+                        metadata; actual cloud pass is the Rust orchestrator's job)
     videoId             Deterministic video id from the URL
 
 Sidecar stdout contract (one event per line, flushed):
@@ -33,6 +32,8 @@ Implements gotchas 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 from the
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import traceback
@@ -43,7 +44,7 @@ from typing import Any
 # Make `from video2crt.*` work whether the Tauri .exe ships us next to a
 # bundled copy or alongside the live repo at C:/Users/asaialabs/Documents/
 # Hermes/Video2CRT. The repo path is the canonical source (gotcha 22).
-_REPO_ROOT = r"C:\Users\asaialabs\Documents\Hermes\Video2CRT"
+_REPO_ROOT = str(Path(__file__).resolve().parents[3])
 _SRC_DIR = str(Path(_REPO_ROOT) / "src")
 
 # Insert in priority order: src first (package root), then bare repo path so
@@ -81,10 +82,15 @@ def burn_subtitles_local(raw: Path, srt: Path, subtitled: Path, cwd_dir: Path) -
     cmd = [
         "ffmpeg", "-y", "-i", "raw.mp4",
         "-vf", f"subtitles=zh-Hant.srt:force_style='{force_style}'",
-        "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23",
+        # The CRT render is libx264 CRF 18. Re-encoding it with NVENC CQ 23
+        # after adding subtitles visibly softens low-resolution sources and
+        # makes output quality depend on whether subtitles were selected.
+        # Match the CRT render's codec and quality here so subtitles do not
+        # change the visual result.
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
         "-pix_fmt", "yuv420p", "-an", "subtitled.mp4",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd_dir), timeout=300)
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(cwd_dir), timeout=300)
     if proc.returncode != 0:
         raise RuntimeError(f"subtitle burn failed: {proc.stderr}")
     return subtitled
@@ -111,7 +117,7 @@ def mux_audio_local(video_in: Path, source: Path, final: Path, cwd_dir: Path) ->
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-aspect", "16:9", "-shortest", final.name,
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd_dir), timeout=120)
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(cwd_dir), timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(f"mux failed: {proc.stderr}")
     return final
@@ -224,6 +230,7 @@ def chunked_transcribe(
                     "start": offset + seg.start,
                     "end": offset + seg.end,
                     "text": text,
+                    "language": language or "en",
                     "avg_logprob": avg_logprob,
                     "chars_per_sec": len(text) / max(dur, 0.1),
                 })
@@ -287,6 +294,7 @@ def medium_en_transcribe(
             "start": seg.start,
             "end": seg.end,
             "text": text,
+            "language": language or "en",
             "avg_logprob": avg_logprob,
             "chars_per_sec": len(text) / max(dur, 0.1),
         })
@@ -317,76 +325,199 @@ def merge_segments(
     return combined
 
 
-# --- custom SRT builder -------------------------------------------------------
-# video2crt.subtitle.build_srt skips segments whose translation is missing.
-# For cloud-translation mode (gotcha 8) we still want to emit every surviving
-# segment with line 2 = "" so the cloud pass can fill it in. So we duplicate
-# the build loop here with the optional "emit empty translations" flag.
+# Shared caption policy is used by both the app and verification scripts.
+from subtitle_engine import (
+    build_srt_original,
+    build_srt_two_line,
+    clip_captions_to_duration,
+    load_youtube_captions,
+    merge_parallel_caption_tracks,
+    normalize_segments,
+    select_source_captions,
+    split_spoken_captions,
+    translate_locally,
+)
 
-def build_srt_two_line(
-    segments: list[dict[str, Any]],
-    translations: dict[str, str],
-    *,
-    emit_empty_translation: bool = False,
-    end_margin_s: float = 0.5,
-    gap_s: float = 0.3,
-    min_duration_s: float = 1.5,
-    min_sep_s: float = 0.5,
-) -> str:
-    """Two-line SRT (gotcha 8): line 1 = Whisper verbatim (gotcha 11 / 17),
-    line 2 = translation (empty string when emit_empty_translation=True and
-    translation is missing). Applies gotcha 9 gap control (two-pass forward /
-    backward clip) and gotcha 13 / 15 filters via video2crt.subtitle.is_skip
-    / is_yt_watermark."""
-    # Pre-filter (gotcha 13 + 15). We do this before two-pass clip so the gap
-    # math doesn't try to schedule text we will drop anyway.
-    kept: list[dict[str, Any]] = []
-    for s in segments:
-        text = s["text"]
-        if is_skip(text):  # gotcha 13: 4-condition filter
+
+def locate_ytdlp() -> Path | None:
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    candidates = [
+        local / "hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
+        local / "hermes/hermes-agent/Scripts/yt-dlp.exe",
+        local / "Video2CRT/bin/yt-dlp.exe",
+        local / "Microsoft/WinGet/Links/yt-dlp.exe",
+        Path(os.environ.get("APPDATA", "")) / "Python/Python311/Scripts/yt-dlp.exe",
+        Path("C:/ProgramData/chocolatey/bin/yt-dlp.exe"),
+    ]
+    found = shutil.which("yt-dlp")
+    if found:
+        candidates.append(Path(found))
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def youtube_declared_language(url: str) -> str | None:
+    """Read YouTube's language metadata without downloading media or captions.
+
+    Whisper can confidently hallucinate a language over music. When the
+    uploader/YouTube declares a supported original language, that is the
+    correct language to request for an exact caption track.
+    """
+    executable = locate_ytdlp()
+    if not executable or not url:
+        return None
+    command = [str(executable), "--no-playlist", "--skip-download",
+               "--dump-single-json", url]
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60,
+        )
+        if completed.returncode != 0:
+            return None
+        language = json.loads(completed.stdout).get("language")
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None
+    if not isinstance(language, str):
+        return None
+    language = language.strip().lower().split("-")[0]
+    return language if language else None
+
+
+def prefer_declared_caption_language(
+    asr_segments: list[dict], asr_language: str | None, declared_language: str | None
+) -> str | None:
+    """Prefer metadata only when ASR's language result is demonstrably weak."""
+    if not declared_language:
+        return asr_language
+    asr = (asr_language or "").lower().split("-")[0]
+    declared = declared_language.lower().split("-")[0]
+    if not asr or asr == declared:
+        return declared
+    confidence = max(
+        (float(segment.get("language_probability", 0.0) or 0.0)
+         for segment in asr_segments),
+        default=0.0,
+    )
+    # Do not override a strong ASR result merely because upload metadata is
+    # inaccurate. The reported Japanese video had 0.53 confidence but was
+    # hallucinated as Russian, so 0.70 leaves a practical safety margin.
+    return declared if confidence < 0.70 else asr_language
+
+
+def fetch_exact_youtube_captions(
+    url: str, language: str | None, output_dir: Path
+) -> list[dict]:
+    """Fetch only a track matching the spoken language; return [] on absence."""
+    executable = locate_ytdlp()
+    if not executable or not url or not language:
+        return []
+    base = language.lower().split("-")[0]
+    if base in ("zh", "yue"):
+        requested = ["zh-Hant", "zh-Hans", "zh"]
+        if base == "yue":
+            requested.insert(0, "yue")
+        declared_language = "zh"
+    else:
+        requested = [base]
+        declared_language = base
+    for code in requested:
+        command = [
+            str(executable), "--no-playlist", "--skip-download",
+            "--write-subs", "--write-auto-subs", "--no-overwrites",
+            "--sub-langs", code, "--sub-format", "srt/vtt/best",
+            "-o", "youtube-source.%(ext)s", url,
+        ]
+        try:
+            completed = subprocess.run(
+                command, cwd=str(output_dir), capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=120,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        if completed.returncode != 0:
             continue
-        if is_yt_watermark(text):  # gotcha 15: end-screen watermark
-            continue
-        # gotcha 17: keep "weird" text — only the 4-condition filter drops.
-        # No avg_logprob gate here (also gotcha 13).
-        kept.append(s)
+        files = sorted(output_dir.glob(f"youtube-source.{code}.*"), key=lambda p: p.suffix != ".srt")
+        for caption_file in files:
+            if caption_file.suffix.lower() not in (".srt", ".vtt"):
+                continue
+            captions = load_youtube_captions(caption_file, declared_language)
+            if captions:
+                return captions
+    return []
 
-    if not kept:
-        return ""
 
-    # --- forward pass: shift start_i forward so each subtitle starts at least
-    # `gap_s` after the previous end (and at least `min_sep_s` later for the
-    # libass fade-out safety margin). See gotcha 9.
-    prev_end = 0.0
-    forward: list[dict[str, Any]] = []
-    for s in kept:
-        ns = max(s["start"] + gap_s, prev_end + min_sep_s)
-        forward.append({**s, "_start": ns, "_end": s["end"]})
-        prev_end = ns
+def fetch_traditional_youtube_captions(url: str, output_dir: Path) -> list[dict]:
+    """Fetch an explicit Traditional Chinese track when the uploader provides one."""
+    executable = locate_ytdlp()
+    if not executable or not url:
+        return []
+    command = [
+        str(executable), "--no-playlist", "--skip-download",
+        "--write-subs", "--write-auto-subs", "--no-overwrites",
+        "--sub-langs", "zh-Hant", "--sub-format", "srt/vtt/best",
+        "-o", "youtube-translation.%(ext)s", url,
+    ]
+    try:
+        completed = subprocess.run(
+            command, cwd=str(output_dir), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    files = sorted(output_dir.glob("youtube-translation.zh-Hant.*"),
+                   key=lambda p: p.suffix != ".srt")
+    for caption_file in files:
+        if caption_file.suffix.lower() in (".srt", ".vtt"):
+            captions = load_youtube_captions(caption_file, "zh")
+            if captions:
+                return captions
+    return []
 
-    # --- backward pass: clip end_i so it doesn't bleed into the next subtitle
-    # start (gotcha 9: clip BOTH ends, not just shift start). Floor at
-    # start_i + min_duration_s so single-line segments stay readable.
-    backward: list[dict[str, Any]] = list(forward)
-    for i in range(len(backward) - 2, -1, -1):
-        next_start = backward[i + 1]["_start"]
-        clipped_end = min(backward[i]["_end"], next_start - gap_s)
-        backward[i]["_end"] = max(clipped_end, backward[i]["_start"] + min_duration_s)
 
-    # --- format
-    lines: list[str] = []
-    for i, s in enumerate(backward, start=1):
-        zh = translations.get(s["text"], "")
-        if not zh and not emit_empty_translation:
-            # No translation available and not in cloud-fill mode — skip this
-            # entry. Per gotcha 11 we must NOT substitute web-fetched lyrics.
-            continue
-        lines.append(str(i))
-        lines.append(f"{fmt_time(s['_start'])} --> {fmt_time(s['_end'])}")
-        lines.append(s["text"])  # gotcha 8: line 1 = ASR verbatim
-        lines.append(zh)         # gotcha 8: line 2 = translation (or empty)
-        lines.append("")
-    return "\n".join(lines)
+def finalize(args: dict[str, Any]) -> int:
+    """Build and burn only after every required translation exists."""
+    output_dir = Path(args["outputDir"])
+    segments = json.loads((output_dir / "subtitle_segments.json").read_text(encoding="utf-8"))
+    translation_file = output_dir / "subtitle_translations.json"
+    translations = json.loads(translation_file.read_text(encoding="utf-8")) if translation_file.exists() else {}
+    subtitle_mode = str(args.get("subtitleMode") or "bilingual")
+    if subtitle_mode not in ("original", "bilingual"):
+        raise ValueError(f"未知字幕模式：{subtitle_mode}")
+    translation_mode = str(args.get("translationMode") or "local")
+    if subtitle_mode == "bilingual" and translation_mode == "local":
+        missing = [segment for segment in segments
+                   if segment.get("language") != "zh" and not translations.get(segment["text"])]
+        if missing:
+            translations.update(translate_locally(
+                missing, lambda message: emit("translate", 0.5, message)))
+        translation_file.write_text(
+            json.dumps(translations, ensure_ascii=False, indent=2), encoding="utf-8")
+    srt_text = (build_srt_original(segments) if subtitle_mode == "original"
+                else build_srt_two_line(segments, translations))
+    srt_path = output_dir / "zh-Hant.srt"
+    srt_path.write_text(srt_text, encoding="utf-8")
+    label = "僅原文" if subtitle_mode == "original" else "中文單行、其他語言雙行"
+    emit("translate", 1.0, f"字幕已完成：{len(segments)} 段；{label}")
+    source = output_dir / "source.mp4"
+    raw = output_dir / "raw.mp4"
+    final = output_dir / "final.mp4"
+    subtitled = output_dir / "subtitled.mp4"
+    if srt_text.strip():
+        emit("burn", 0.0, "正在將完成的字幕燒入影片")
+        burn_subtitles_local(raw, srt_path, subtitled, output_dir)
+        emit("burn", 1.0, "字幕燒錄完成")
+        video = subtitled
+    else:
+        emit("burn", 1.0, "未辨識到人聲，保留無字幕影片")
+        video = raw
+    emit("mux", 0.0, "正在封裝影片與原始聲音")
+    mux_audio_local(video, source, final, output_dir)
+    emit("mux", 1.0, "影片與聲音封裝完成")
+    emit_done({"videoId": args.get("videoId", ""), "outputDir": str(output_dir),
+               "finalMp4": str(final), "srt": str(srt_path)})
+    return 0
 
 
 # --- main pipeline ------------------------------------------------------------
@@ -405,6 +536,8 @@ def load_local_translations(repo_root: Path) -> dict[str, str]:
 
 def run(args: dict[str, Any]) -> int:
     """Run the four stages. Returns process exit code."""
+    if args.get("phase") == "finalize":
+        return finalize(args)
     url = args.get("url", "")
     output_dir = Path(args["outputDir"])
     crop = args.get("crop", "") or ""
@@ -443,134 +576,66 @@ def run(args: dict[str, Any]) -> int:
     emit("asr", 0.05, "extracting 16kHz mono audio for Whisper")
     audio = extract_audio(source_mp4)
 
-    emit("asr", 0.10, "stage 1/3: faster-whisper medium-multilingual (int8)")
-    main_segs = transcribe(audio, model_name="medium", language=asr_language)
+    emit("asr", 0.10, "載入本機 Whisper large-v3-turbo 語音辨識模型")
+    from huggingface_hub import snapshot_download
+    model_options = dict(repo_id="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        revision="0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", token=False,
+        allow_patterns=["config.json", "model.bin", "tokenizer.json", "vocabulary.json", "preprocessor_config.json"])
+    try:
+        model_path = snapshot_download(**model_options, local_files_only=True)
+        if not all((Path(model_path) / name).is_file() for name in model_options["allow_patterns"]):
+            raise FileNotFoundError("incomplete ASR model cache")
+    except Exception:
+        emit("asr", 0.10, "首次下載本機辨識模型（約 1.6 GB），影片不會上傳")
+        model_path = snapshot_download(**model_options)
+    main_segs = transcribe(audio, model_name=model_path, language=asr_language)
     main_out = output_dir / "faster_whisper_out.json"
     main_out.write_text(json.dumps(main_segs, ensure_ascii=False, indent=2), encoding="utf-8")
     emit("asr", 0.55, f"stage 1 complete: {len(main_segs)} segments")
 
-    # Decide whether to run chunked ASR (gotcha 16) and/or medium.en (gotcha 18)
-    has_silence_gap = find_long_silence_gaps(main_segs, min_gap_s=30.0)
-
-    chunk_segs: list[dict[str, Any]] = []
-    en_segs: list[dict[str, Any]] = []
-
-    if has_silence_gap:
-        emit("asr", 0.60, "30s+ silence gap detected — running chunked ASR (gotcha 16)")
-        try:
-            chunk_segs = chunked_transcribe(audio, source_mp4, asr_language)
-            chunk_out = output_dir / "faster_whisper_out_chunks.json"
-            chunk_out.write_text(json.dumps(chunk_segs, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception as exc:  # noqa: BLE001
-            emit("asr", 0.65, f"chunked ASR failed: {exc}")
-        emit("asr", 0.70, f"chunked ASR complete: {len(chunk_segs)} raw segments")
-
-        # After merging chunked, re-check for remaining silence (gotcha 18).
-        merged_after_chunks = merge_segments(main_segs, chunk_segs)
-        if find_long_silence_gaps(merged_after_chunks, min_gap_s=30.0):
-            emit("asr", 0.75, "still silent — running medium.en fallback (gotcha 18)")
-            try:
-                en_segs = medium_en_transcribe(audio, asr_language)
-                en_out = output_dir / "faster_whisper_out_en.json"
-                en_out.write_text(json.dumps(en_segs, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception as exc:  # noqa: BLE001
-                emit("asr", 0.78, f"medium.en fallback failed: {exc}")
-            emit("asr", 0.82, f"medium.en fallback complete: {len(en_segs)} raw segments")
-        else:
-            emit("asr", 0.82, "chunked ASR closed the silence gaps — medium.en not needed")
+    detected_language = main_segs[0].get("language", asr_language) if main_segs else asr_language
+    declared_language = youtube_declared_language(str(args.get("url") or ""))
+    caption_language = prefer_declared_caption_language(
+        main_segs, detected_language, declared_language)
+    # Do not infer "missing speech" from instrumental pauses and run an English
+    # model over non-English songs. A single multilingual pass owns the timeline.
+    duration = ffprobe_duration(source_mp4)
+    asr_segments = normalize_segments(split_spoken_captions(main_segs), duration)
+    emit("asr", 0.65, "檢查 YouTube 是否有與原語言相符的字幕")
+    youtube_captions = fetch_exact_youtube_captions(
+        str(args.get("url") or ""), caption_language, output_dir)
+    youtube_captions = clip_captions_to_duration(youtube_captions, duration)
+    selected = select_source_captions(asr_segments, youtube_captions, caption_language)
+    if selected is youtube_captions:
+        segments = normalize_segments(youtube_captions, duration)
+        subtitle_source = "youtube-caption"
+        detected_language = caption_language
+        emit("asr", 0.9, f"採用已驗證的原語 YouTube 字幕：{len(segments)} 段")
     else:
-        emit("asr", 0.82, "no 30s+ silence gaps — chunked / medium.en skipped")
-
-    merged_segs = merge_segments(main_segs, chunk_segs)
-    merged_segs = merge_segments(merged_segs, en_segs)
-    emit("asr", 0.90, f"merged ASR: {len(merged_segs)} segments (main={len(main_segs)}, chunks={len(chunk_segs)}, en={len(en_segs)})")
-
-    # ---- Stage 5 SRT build (gotcha 8, 9, 11, 13, 15, 17) ------------------
-    emit("srt", 0.10, "building bilingual SRT (gotcha 8: two-line, gotcha 11: ASR-only)")
-    # Choose translation source. In cloud mode line 2 starts empty; in local
-    # mode we look up `lyrics_translations.json` for any matching line.
-    # In cloud-translation mode (cloudTranslation=true) we leave line 2
-    # empty so a future pass can fill it in. In local mode we still want
-    # to show the ASR verbatim text even when there's no dictionary entry
-    # — otherwise the SRT ends up empty for songs that aren't curated in
-    # `lyrics_translations.json`. The old behaviour skipped the whole
-    # entry when both translation was missing and emit_empty was false,
-    # which is what was leaving every non-curated song with 0 subtitles.
-    # We now always pass emit_empty_translation=True; for local mode we
-    # also pass the local dictionary so line 2 has the curated Chinese
-    # when available.
-    translations_for_build: dict[str, str] = (
-        {} if cloud_translation else dict(local_translations)
-    )
-    srt_text = build_srt_two_line(
-        merged_segs,
-        translations_for_build,
-        emit_empty_translation=True,
-    )
-    srt_path = output_dir / "zh-Hant.srt"
-    srt_path.write_text(srt_text, encoding="utf-8")
-    blocks = [b for b in srt_text.split("\n\n") if b.strip()]
-    emit("srt", 0.50, f"SRT written: {len(blocks)} entries to {srt_path.name}")
-
-    # ---- Stage 6 burn + mux (gotcha 4: subtitles separate from libplacebo) -
-    subtitled_mp4 = output_dir / "subtitled.mp4"
-    if blocks:
-        emit("burn", 0.05, "burning subtitles onto raw.mp4 (h264_nvenc, libass)")
-        burn_subtitles_local(raw_mp4, srt_path, subtitled_mp4, output_dir)
-        emit("burn", 0.55, "subtitle burn complete")
-        emit("mux", 0.05, "muxing audio with -aspect 16:9 (gotcha 3)")
-        final_mp4 = output_dir / "final.mp4"
-        mux_audio_local(subtitled_mp4, source_mp4, final_mp4, output_dir)
-        emit("mux", 0.55, "mux complete")
-    else:
-        # Empty SRT (no translatable ASR survived filters, or local dict has no
-        # matches and cloud translation is off). Skip burn/mux and use raw.mp4
-        # as the final output — we still want a deliverable.
-        emit("burn", 0.05, "no SRT entries to burn; using raw.mp4 as final")
-        final_mp4 = output_dir / "final.mp4"
-        # Best-effort: mux audio into raw.mp4 with -aspect 16:9.
-        try:
-            mux_audio_local(raw_mp4, source_mp4, final_mp4, output_dir)
-        except RuntimeError:
-            # If mux also fails (e.g. no audio in source), fall back to copy.
-            import shutil as _sh
-            _sh.copyfile(raw_mp4, final_mp4)
-        emit("mux", 0.55, "mux complete (raw fallback)")
-
-    # ---- Hand-off note for the React UI ----------------------------------
-    handoff_path = output_dir / "handoff.md"
-    if not handoff_path.exists():
-        handoff_path.write_text(
-            "\n".join([
-                f"# handoff — {video_id}",
-                "",
-                f"- url: {url}",
-                f"- crop: {crop or '(default 960:720:160:0 per gotcha 6/24)'}",
-                f"- asr_language: {asr_language or 'auto'}",
-                f"- cloud_translation: {cloud_translation}",
-                f"- translation_model: {translation_model or '(n/a)'}",
-                "",
-                "## ASR counts",
-                f"- medium (main): {len(main_segs)}",
-                f"- chunked:       {len(chunk_segs)}",
-                f"- medium.en:     {len(en_segs)}",
-                f"- merged:        {len(merged_segs)}",
-                "",
-                "## gotchas applied",
-                "7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20",
-                "",
-            ]),
-            encoding="utf-8",
-        )
-
-    emit_done({
-        "videoId": video_id,
-        "outputDir": str(output_dir),
-        "finalMp4": str(final_mp4),
-        "srt": str(srt_path),
-        "subtitledMp4": str(subtitled_mp4),
-    })
-    return 0
+        segments = asr_segments
+        subtitle_source = "local-asr"
+        emit("asr", 0.9, "沒有完整且語言相符的 YouTube 字幕，採用本機語音辨識")
+    if detected_language not in ("zh", "yue"):
+        traditional_track = clip_captions_to_duration(
+            fetch_traditional_youtube_captions(str(args.get("url") or ""), output_dir), duration)
+        segments, verified_translations = merge_parallel_caption_tracks(
+            segments, traditional_track)
+        segments = normalize_segments(segments, duration)
+        if verified_translations:
+            (output_dir / "subtitle_translations.json").write_text(
+                json.dumps(verified_translations, ensure_ascii=False, indent=2), encoding="utf-8")
+            emit("asr", 0.95, f"採用 {len(verified_translations)} 段已提供的繁體中文字幕")
+    (output_dir / "subtitle_segments.json").write_text(
+        json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output_dir / "subtitle_source.json").write_text(json.dumps({
+        "source": subtitle_source,
+        "language": detected_language,
+        "segments": len(segments),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    emit("asr", 1.0, f"字幕原文完成：{len(segments)} 段，語言 {detected_language or '未偵測'}")
+    if args.get("phase") == "prepare":
+        return 0
+    return finalize(args)
 
 
 def main() -> int:

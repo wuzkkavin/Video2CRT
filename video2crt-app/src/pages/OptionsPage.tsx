@@ -12,12 +12,13 @@
 
 import { useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { hasApiKey } from "../lib/tauri";
 import type { JobOptions } from "../lib/types";
 
 export interface OptionsPageProps {
   url: string;
   onBack: () => void;
-  onStart: (opts: JobOptions) => void;
+  onStart: (opts: JobOptions) => Promise<void>;
   onOpenSettings: () => void;
   defaultOptions: JobOptions;
 }
@@ -32,17 +33,17 @@ export function OptionsPage({
   const [crop, setCrop] = useState(defaultOptions.crop);
   const [asrLanguage, setAsrLanguage] =
     useState<JobOptions["asrLanguage"]>(defaultOptions.asrLanguage);
-  const [enableSubtitles, setEnableSubtitles] = useState(
-    defaultOptions.enableSubtitles,
+  const [subtitleMode, setSubtitleMode] = useState<JobOptions["subtitleMode"]>(
+    defaultOptions.subtitleMode,
   );
-  const [cloudTranslation, setCloudTranslation] = useState(
-    defaultOptions.cloudTranslation,
+  const [translationMode, setTranslationMode] = useState<JobOptions["translationMode"]>(
+    defaultOptions.translationMode,
   );
   const [translationModel, setTranslationModel] = useState(
     defaultOptions.translationModel,
   );
   // Output directory. Empty string means "use the default
-  // <projectRoot>/output/yt_<id>/". When the user picks a folder via
+  // <Desktop>/<video title>/". When the user picks a folder via
   // the dialog, we store its absolute path here and ship it to Rust.
   const [outputDir, setOutputDir] = useState(defaultOptions.outputDir);
 
@@ -53,17 +54,26 @@ export function OptionsPage({
   // and crashing the GPU encoder (`0xC0000005`).
   const [starting, setStarting] = useState(false);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (starting) return;
     setStarting(true);
-    onStart({
+    try { await onStart({
       crop: crop.trim(),
       asrLanguage,
-      enableSubtitles,
-      cloudTranslation: enableSubtitles && cloudTranslation,
-      translationModel: enableSubtitles && cloudTranslation ? translationModel : "",
+      enableSubtitles: subtitleMode !== "none",
+      subtitleMode,
+      translationMode,
+      cloudTranslation: subtitleMode === "bilingual" && (translationMode === "cloudFallback" || translationMode === "cloud"),
+      translationModel: subtitleMode === "bilingual" && (translationMode === "cloudFallback" || translationMode === "cloud") ? translationModel : "",
       outputDir: outputDir.trim(),
-    });
+    }); } finally { setStarting(false); }
+  };
+
+  const chooseTranslationMode = async (mode: JobOptions["translationMode"]) => {
+    setTranslationMode(mode);
+    if ((mode === "cloud" || mode === "cloudFallback") && !(await hasApiKey())) {
+      onOpenSettings();
+    }
   };
 
   // Pop the OS folder picker via Tauri's dialog plugin. Returns
@@ -123,7 +133,7 @@ export function OptionsPage({
           onChange={(e) =>
             setAsrLanguage(e.target.value as JobOptions["asrLanguage"])
           }
-          disabled={!enableSubtitles}
+          disabled={subtitleMode === "none"}
         >
           <option value="auto">自動偵測 (auto)</option>
           <option value="ja">日本語 (ja)</option>
@@ -133,59 +143,85 @@ export function OptionsPage({
       </div>
 
       <div className="field">
-        <div className="checkbox-row">
-          <input
-            id="enable-subtitles"
-            type="checkbox"
-            checked={enableSubtitles}
-            onChange={(e) => setEnableSubtitles(e.target.checked)}
-          />
-          <label htmlFor="enable-subtitles">產生字幕（ASR）</label>
-        </div>
-        <span className="field-hint">
-          關閉則跳過語音辨識與字幕燒錄，直接輸出 CRT 濾鏡後的影片。適合純音樂。
-        </span>
-      </div>
-
-      <div className="field">
-        <div className="checkbox-row">
-          <input
-            id="cloud-translation"
-            type="checkbox"
-            checked={cloudTranslation}
-            onChange={(e) => setCloudTranslation(e.target.checked)}
-            disabled={!enableSubtitles}
-          />
-          <label htmlFor="cloud-translation">
-            啟用雲端翻譯（透過 Minimax API）
+        <label className="field-label">字幕輸出</label>
+        <div className="radio-group" role="radiogroup" aria-label="字幕輸出">
+          <label className="checkbox-row">
+            <input type="radio" name="subtitle-mode" value="original"
+              checked={subtitleMode === "original"}
+              onChange={() => setSubtitleMode("original")} />
+            只有原文字幕
+          </label>
+          <label className="checkbox-row">
+            <input type="radio" name="subtitle-mode" value="bilingual"
+              checked={subtitleMode === "bilingual"}
+              onChange={() => setSubtitleMode("bilingual")} />
+            原文＋繁體中文字幕
+          </label>
+          <label className="checkbox-row">
+            <input type="radio" name="subtitle-mode" value="none"
+              checked={subtitleMode === "none"}
+              onChange={() => setSubtitleMode("none")} />
+            無字幕
           </label>
         </div>
-
-        <label className="field-label" htmlFor="translation-model">
-          翻譯模型
-        </label>
-        <select
-          id="translation-model"
-          className="select"
-          value={translationModel}
-          onChange={(e) => setTranslationModel(e.target.value)}
-          disabled={!enableSubtitles || !cloudTranslation}
-        >
-          {enableSubtitles && cloudTranslation ? null : <option value="">(請先啟用字幕與雲端翻譯)</option>}
-          <option value="MiniMax-M3">MiniMax-M3 (default, 1M ctx)</option>
-          <option value="MiniMax-M2.7">MiniMax-M2.7</option>
-          <option value="MiniMax-M2.7-highspeed">MiniMax-M2.7-highspeed</option>
-          <option value="MiniMax-M2.5">MiniMax-M2.5 (legacy)</option>
-          <option value="MiniMax-M2.5-highspeed">
-            MiniMax-M2.5-highspeed (legacy)
-          </option>
-          <option value="MiniMax-M2.1">MiniMax-M2.1 (legacy)</option>
-          <option value="MiniMax-M2">MiniMax-M2 (legacy)</option>
-        </select>
         <span className="field-hint">
-          開啟雲端翻譯前，請先在「設定」中儲存 API key。
+          中文原片維持繁中單行；選擇無字幕會略過字幕辨識與燒錄。
         </span>
       </div>
+
+      {subtitleMode === "bilingual" && (
+        <div className="field">
+          <label className="field-label">翻譯方式</label>
+          <div className="radio-group" role="radiogroup" aria-label="翻譯方式">
+            <label className="checkbox-row">
+              <input type="radio" name="translation-mode" value="local"
+                checked={translationMode === "local"}
+                onChange={() => void chooseTranslationMode("local")} />
+              本機端翻譯（預設）
+            </label>
+            <label className="checkbox-row">
+              <input type="radio" name="translation-mode" value="cloudFallback"
+                checked={translationMode === "cloudFallback"}
+                onChange={() => void chooseTranslationMode("cloudFallback")} />
+              本機端優先，失敗時使用雲端翻譯
+            </label>
+            <label className="checkbox-row">
+              <input type="radio" name="translation-mode" value="cloud"
+                checked={translationMode === "cloud"}
+                onChange={() => void chooseTranslationMode("cloud")} />
+              純雲端翻譯
+            </label>
+          </div>
+          <span className="field-hint">
+            本機端可翻譯時，文字不會傳出電腦。選擇雲端備援且已儲存 API Key 時，本機失敗才會把外語字幕送至 MiniMax。
+          </span>
+
+          <label className="field-label" htmlFor="translation-model">
+            翻譯模型
+          </label>
+          <select
+            id="translation-model"
+            className="select"
+            value={translationModel}
+            onChange={(e) => setTranslationModel(e.target.value)}
+            disabled={translationMode !== "cloudFallback" && translationMode !== "cloud"}
+          >
+            {translationMode === "cloudFallback" || translationMode === "cloud" ? null : <option value="">(請選擇雲端翻譯)</option>}
+            <option value="MiniMax-M3">MiniMax-M3 (default, 1M ctx)</option>
+            <option value="MiniMax-M2.7">MiniMax-M2.7</option>
+            <option value="MiniMax-M2.7-highspeed">MiniMax-M2.7-highspeed</option>
+            <option value="MiniMax-M2.5">MiniMax-M2.5 (legacy)</option>
+            <option value="MiniMax-M2.5-highspeed">
+              MiniMax-M2.5-highspeed (legacy)
+            </option>
+            <option value="MiniMax-M2.1">MiniMax-M2.1 (legacy)</option>
+            <option value="MiniMax-M2">MiniMax-M2 (legacy)</option>
+          </select>
+          <span className="field-hint">
+            雲端備援前，請先在「設定」中儲存 API key。
+          </span>
+        </div>
+      )}
 
       <div className="field">
         <label className="field-label" htmlFor="output-dir-input">
@@ -199,7 +235,7 @@ export function OptionsPage({
             value={outputDir}
             onChange={(e) => setOutputDir(e.target.value)}
             spellCheck={false}
-            placeholder="留空使用預設 ~/Documents/Hermes/Video2CRT/output/yt_<id>/"
+            placeholder="留空使用桌面／YouTube 影片標題／"
           />
           <button
             type="button"
@@ -211,8 +247,7 @@ export function OptionsPage({
           </button>
         </div>
         <span className="field-hint">
-          影片、字幕、log 都會寫進這個資料夾。留空時使用
-          <code>~/Documents/Hermes/Video2CRT/output/yt_&lt;video-id&gt;</code>。
+          在所選位置建立「YouTube 影片標題」資料夾，存放影片與字幕；同名時自動加序號。留空時使用桌面。
         </span>
       </div>
 

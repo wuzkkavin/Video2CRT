@@ -25,15 +25,19 @@ export interface StartJobRequest {
   crop?: string | null;
   /** ASR language hint: "ja" | "en" | "zh" | "auto". */
   asrLanguage?: string | null;
-  /** Whether to generate subtitles at all (default true). If false, ASR/SRT/burn are skipped and raw.mp4 is muxed directly. */
+  /** Legacy compatibility flag. `subtitleMode` controls new requests. */
   enableSubtitles?: boolean | null;
-  /** Use cloud translation via Minimax (default false). Only meaningful when enableSubtitles=true. */
+  /** Subtitle output: original only, original plus Traditional Chinese, or none. */
+  subtitleMode?: SubtitleMode;
+  /** Local, local-then-cloud fallback, or direct cloud translation. */
+  translationMode?: TranslationMode;
+  /** Whether the selected translation mode may call MiniMax. */
   cloudTranslation: boolean;
   /** Model id for cloud translation (required when cloudTranslation=true). */
   translationModel?: string | null;
   /**
    * Absolute output directory picked by the user in OptionsPage.
-   * Empty/null → Rust falls back to `<projectRoot>/output/yt_<id>/`.
+   * Empty/null → Rust uses `<Desktop>/<video title>/`.
    */
   outputDir?: string | null;
 }
@@ -53,6 +57,7 @@ export type PipelineStage =
   | "cropdetect"
   | "render"
   | "asr"
+  | "translate"
   | "burn"
   | "mux"
   | "done";
@@ -100,6 +105,8 @@ export interface ModelInfo {
 
 /** The four top-level page states the App cycles through. */
 export type PageState = "url" | "options" | "progress" | "done";
+export type SubtitleMode = "original" | "bilingual" | "none";
+export type TranslationMode = "local" | "cloudFallback" | "cloud";
 
 /** A single log line kept in memory for the ProgressPage log region. */
 export interface LogEntry {
@@ -115,11 +122,13 @@ export interface JobOptions {
   crop: string;
   asrLanguage: "auto" | "ja" | "en" | "zh";
   enableSubtitles: boolean;
+  subtitleMode: SubtitleMode;
+  translationMode: TranslationMode;
   cloudTranslation: boolean;
   translationModel: string;
   /**
    * Directory to write `source.mp4 / raw.mp4 / subtitled.mp4 /
-   * final.mp4 / *.srt` into. Defaults to `<projectRoot>/output/yt_<id>`
+   * final.mp4 / *.srt` into. Defaults to `<Desktop>/<video title>`
    * if empty. The user can override this from OptionsPage via a
    * folder picker; we keep the path absolute on the Rust side.
    */

@@ -27,7 +27,11 @@ def transcribe(audio: Path, model_name: str = "medium", language: str | None = N
     Returns list of {start, end, text, avg_logprob, chars_per_sec}.
     """
     from faster_whisper import WhisperModel
-    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    # Prefer the downloaded model; a network metadata timeout must not stall ASR.
+    try:
+        model = WhisperModel(model_name, device="cpu", compute_type="int8", local_files_only=True)
+    except (OSError, ValueError):
+        model = WhisperModel(model_name, device="cpu", compute_type="int8")
     kwargs = {
         "beam_size": 10,
         "word_timestamps": True,
@@ -37,20 +41,43 @@ def transcribe(audio: Path, model_name: str = "medium", language: str | None = N
     }
     if language:
         kwargs["language"] = language
-    segments, info = model.transcribe(str(audio), **kwargs)
-    results = []
-    for seg in segments:
-        text = seg.text.strip()
-        if not text or text == "-":
-            continue
-        words = getattr(seg, "words", None) or []
-        avg_logprob = sum(w.probability for w in words if hasattr(w, "probability")) / max(len(words), 1) if words else 0.5
-        duration = seg.end - seg.start
-        results.append({
-            "start": seg.start,
-            "end": seg.end,
-            "text": text,
-            "avg_logprob": avg_logprob,
-            "chars_per_sec": len(text) / max(duration, 0.1),
-        })
-    return results
+    def collect(word_timestamps: bool):
+        """Consume Whisper's lazy iterator while its exceptions are catchable.
+
+        Some versions of faster-whisper occasionally raise an IndexError from
+        word alignment on music videos (an empty timestamp array is indexed by
+        a boolean mask). Segment timestamps are still usable, so retrying
+        without word alignment gives the user subtitles instead of aborting the
+        whole conversion.
+        """
+        attempt = {**kwargs, "word_timestamps": word_timestamps}
+        segments, info = model.transcribe(str(audio), **attempt)
+        results = []
+        for seg in segments:
+            text = seg.text.strip()
+            if not text or text == "-":
+                continue
+            words = getattr(seg, "words", None) or []
+            avg_logprob = sum(w.probability for w in words if hasattr(w, "probability")) / max(len(words), 1) if words else 0.5
+            duration = seg.end - seg.start
+            results.append({
+                "start": seg.start,
+                "end": seg.end,
+                "text": text,
+                "language": info.language,
+                "language_probability": info.language_probability,
+                "avg_logprob": seg.avg_logprob,
+                "no_speech_prob": seg.no_speech_prob,
+                "words": [{"start": w.start, "end": w.end, "word": w.word} for w in words],
+                "chars_per_sec": len(text) / max(duration, 0.1),
+            })
+        return results
+
+    try:
+        return collect(word_timestamps=True)
+    except IndexError as error:
+        # Do not broadly hide ASR failures. This is the known empty-alignment
+        # failure; retry only when it is the failing word-timestamp operation.
+        if "boolean index did not match" not in str(error):
+            raise
+        return collect(word_timestamps=False)

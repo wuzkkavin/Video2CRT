@@ -29,7 +29,6 @@ use tauri::{AppHandle, Emitter, Manager};
 /// standard value for `CREATE_NO_WINDOW` from `WinBase.h`.
 #[cfg(windows)]
 fn cmd_no_window<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Command {
-    use std::os::windows::process::CommandExt;
     let mut c = tokio::process::Command::new(program);
     c.creation_flags(0x0800_0000);
     c
@@ -39,7 +38,7 @@ fn cmd_no_window<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Comma
 fn cmd_no_window<S: AsRef<std::ffi::OsStr>>(program: S) -> tokio::process::Command {
     tokio::process::Command::new(program)
 }
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
 use crate::StartJobRequest;
 
@@ -77,6 +76,31 @@ impl JobRegistry {
     }
 }
 
+/// Faster-Whisper is CPU and memory intensive. Running two model loads at
+/// once has produced nondeterministic NumPy failures, so subtitle inference is
+/// deliberately serialized while downloads and CRT rendering remain parallel.
+pub struct AsrGate {
+    semaphore: Arc<Semaphore>,
+}
+
+impl Default for AsrGate {
+    fn default() -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(1)),
+        }
+    }
+}
+
+impl AsrGate {
+    async fn acquire(&self) -> Result<OwnedSemaphorePermit> {
+        self.semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .context("字幕辨識佇列已關閉")
+    }
+}
+
 /// One progress frame sent to the React UI.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,6 +121,7 @@ fn stage_weight(stage: &str) -> f32 {
         "cropdetect" => 0.05,
         "render" => 0.50,
         "asr" => 0.20,
+        "translate" => 0.05,
         "burn" => 0.05,
         "mux" => 0.05,
         _ => 0.0,
@@ -106,7 +131,15 @@ fn stage_weight(stage: &str) -> f32 {
 /// Cumulative weights so we can compute overall `progress` from the active
 /// stage and its intra-stage fraction.
 fn cumulative(stage: &str) -> f32 {
-    let order = ["download", "cropdetect", "render", "asr", "burn", "mux"];
+    let order = [
+        "download",
+        "cropdetect",
+        "render",
+        "asr",
+        "translate",
+        "burn",
+        "mux",
+    ];
     let mut acc = 0.0_f32;
     for s in order {
         if s == stage {
@@ -135,7 +168,7 @@ pub fn resolve_project_root(req: &StartJobRequest) -> PathBuf {
 /// Resolve the directory we write the output files into. Order of
 /// preference:
 ///   1. `req.output_dir` if the user picked a folder in OptionsPage.
-///   2. `<project_root>/output/yt_<video_id>/` (the historical default).
+///   2. The user's Desktop (the default requested for normal app use).
 pub fn resolve_output_dir(req: &StartJobRequest, project_root: &Path) -> PathBuf {
     if let Some(p) = &req.output_dir {
         let p = p.trim();
@@ -143,9 +176,20 @@ pub fn resolve_output_dir(req: &StartJobRequest, project_root: &Path) -> PathBuf
             return PathBuf::from(p);
         }
     }
-    project_root
-        .join("output")
-        .join(format!("yt_{}", derive_video_id(&req.url)))
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| project_root.display().to_string());
+    PathBuf::from(home).join("Desktop")
+}
+
+fn subtitle_mode(req: &StartJobRequest) -> &str {
+    match req.subtitle_mode.as_deref() {
+        Some("original") => "original",
+        Some("none") => "none",
+        Some("bilingual") => "bilingual",
+        _ if !req.enable_subtitles => "none",
+        _ => "bilingual",
+    }
 }
 
 /// Kick off the orchestrator. Returns immediately with the new job handle.
@@ -191,32 +235,30 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     // the synchronous part of `start()` dies (if it does) before
     // the tokio::spawn runs.
     let breadcrumb_log = |line: &str| {
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(std::path::PathBuf::from(
-                std::env::var("USERPROFILE").unwrap_or_default(),
-            )
-            .join("Documents")
-            .join("Hermes")
-            .join("Video2CRT")
-            .join("video2crt-startup.log"))
-        {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(
+            std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default())
+                .join("Documents")
+                .join("Hermes")
+                .join("Video2CRT")
+                .join("video2crt-startup.log"),
+        ) {
             use std::io::Write as _;
             let _ = writeln!(f, "[trace] {line}");
-            }
-            };
-            breadcrumb_log(&format!("A: about to create_dir_all({})", base_output_dir.display()));
+        }
+    };
+    breadcrumb_log(&format!(
+        "A: about to create_dir_all({})",
+        base_output_dir.display()
+    ));
 
-            // Fetch the video title (best-effort) so we can name the working
-            // directory after the human-readable title instead of `yt_<id>`.
-            // Falls back to `yt_<id>` if metadata fetch fails. Adds ~1-2s
-            // before the download starts.
-            let title = fetch_video_title(&req.url, &video_id).await;
-            breadcrumb_log(&format!("B0: fetched video title: {title}"));
-            let sub_dir_name = safe_dirname(&title, &video_id);
-            let output_dir = base_output_dir.join(&sub_dir_name);
-            breadcrumb_log(&format!("B0.5: output_dir = {}", output_dir.display()));
+    // Fetch the video title before reserving the working directory.
+    // A metadata failure stops here, so no ID-named fallback directory
+    // can be created and no previous result can be overwritten.
+    let title = fetch_video_title(&req.url, &video_id).await?;
+    breadcrumb_log(&format!("B0: fetched video title: {title}"));
+    let sub_dir_name = safe_dirname(&title, &video_id);
+    let output_dir = reserve_output_dir(&base_output_dir, &sub_dir_name)?;
+    breadcrumb_log(&format!("B0.5: output_dir = {}", output_dir.display()));
 
     std::fs::create_dir_all(&output_dir)
         .with_context(|| format!("creating {}", output_dir.display()))?;
@@ -243,17 +285,13 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
         // whether the task even starts. If we don't see this line in
         // startup.log, the spawn itself never ran (e.g. panic in
         // tokio runtime, or the Tauri event loop dropped us).
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(std::path::PathBuf::from(
-                std::env::var("USERPROFILE").unwrap_or_default(),
-            )
-            .join("Documents")
-            .join("Hermes")
-            .join("Video2CRT")
-            .join("video2crt-startup.log"))
-        {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(
+            std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default())
+                .join("Documents")
+                .join("Hermes")
+                .join("Video2CRT")
+                .join("video2crt-startup.log"),
+        ) {
             use std::io::Write as _;
             let _ = writeln!(f, "[stage] tokio::spawn task entered for {}", video_id);
         }
@@ -326,12 +364,24 @@ async fn run_pipeline(
     handle: JobHandle,
     cancel_flag: Arc<Mutex<bool>>,
 ) -> Result<()> {
-    emit_progress(&app, &handle.video_id, "init", 0.0, "starting pipeline", None);
+    emit_progress(
+        &app,
+        &handle.video_id,
+        "init",
+        0.0,
+        "starting pipeline",
+        None,
+    );
 
     check_cancel(&cancel_flag).await?;
 
     // Stage 1: yt-dlp download
-    stage_begin(&app, &handle, "download", "downloading from YouTube via yt-dlp");
+    stage_begin(
+        &app,
+        &handle,
+        "download",
+        "downloading from YouTube via yt-dlp",
+    );
     if let Err(e) =
         download_with_ytdlp(&app, &handle, &req.url, Path::new(&handle.output_dir)).await
     {
@@ -376,7 +426,11 @@ async fn run_pipeline(
         cumulative("cropdetect"),
         &format!(
             "detected pillarbox: {} → using crop={}",
-            if detected_crop.is_empty() { "(none)".to_string() } else { detected_crop.clone() },
+            if detected_crop.is_empty() {
+                "(none)".to_string()
+            } else {
+                detected_crop.clone()
+            },
             crop_value
         ),
         Some(&crop_value),
@@ -395,15 +449,34 @@ async fn run_pipeline(
     // Stage 4-6: faster-whisper + SRT + burn + mux — delegated to the
     // Python sidecar `pipeline_cli.py` (kept here as a separate process so
     // we don't have to maintain a Rust ASR binding).
-    if !req.enable_subtitles {
+    if subtitle_mode(&req) == "none" {
         // User unchecked "產生字幕" — skip ASR/SRT/burn entirely. This is
         // the fast path for pure-music videos (your 5-minute wait case).
-        emit_progress(&app, &handle.video_id, "asr", cumulative("asr"), "skipped (subtitles disabled)", None);
+        emit_progress(
+            &app,
+            &handle.video_id,
+            "asr",
+            cumulative("asr"),
+            "skipped (subtitles disabled)",
+            None,
+        );
         stage_done(&app, &handle, "asr");
-        emit_progress(&app, &handle.video_id, "burn", cumulative("burn"), "skipped (subtitles disabled)", None);
+        emit_progress(
+            &app,
+            &handle.video_id,
+            "burn",
+            cumulative("burn"),
+            "skipped (subtitles disabled)",
+            None,
+        );
         stage_done(&app, &handle, "burn");
         // Still need to mux raw.mp4 (CRT) + source.mp4 audio → final.mp4
-        stage_begin(&app, &handle, "mux", "muxing audio + -aspect 16:9 (no subtitles)");
+        stage_begin(
+            &app,
+            &handle,
+            "mux",
+            "muxing audio + -aspect 16:9 (no subtitles)",
+        );
         let raw = PathBuf::from(&handle.output_dir).join("raw.mp4");
         let source = PathBuf::from(&handle.output_dir).join("source.mp4");
         let final_mp4 = PathBuf::from(&handle.output_dir).join("final.mp4");
@@ -441,36 +514,64 @@ async fn run_pipeline(
         }
         stage_done(&app, &handle, "mux");
     } else {
-        stage_begin(&app, &handle, "asr", "running faster-whisper via Python sidecar");
-        let sidecar = locate_sidecar();
+        stage_begin(
+            &app,
+            &handle,
+            "asr",
+            "等待本機語音辨識資源",
+        );
+        // Only ASR is gated. The existing download, crop, CRT and mux paths
+        // intentionally remain unchanged and may still run concurrently.
+        let asr_gate = app.state::<AsrGate>();
+        let permit = asr_gate.acquire().await?;
+        emit_progress(
+            &app,
+            &handle.video_id,
+            "asr",
+            cumulative("asr"),
+            "running faster-whisper via Python sidecar",
+            None,
+        );
+        let translation_mode = req.translation_mode.as_deref().unwrap_or("local");
+        let cloud_fallback_enabled = subtitle_mode(&req) == "bilingual"
+            && cloud_translation_enabled(req.cloud_translation, crate::settings::has_api_key());
+        if req.cloud_translation && !cloud_fallback_enabled {
+            emit_progress(
+                &app,
+                &handle.video_id,
+                "translate",
+                cumulative("translate"),
+                if translation_mode == "cloud" {
+                    "未儲存 MiniMax API Key，無法使用純雲端翻譯"
+                } else {
+                    "未儲存 MiniMax API Key，將只使用本機繁中翻譯"
+                },
+                None,
+            );
+        }
         let payload = serde_json::json!({
             "url": req.url,
             "outputDir": handle.output_dir,
             "videoId": handle.video_id,
             "crop": crop_value,
             "asrLanguage": req.asr_language,
-            "cloudTranslation": req.cloud_translation,
+            "subtitleMode": subtitle_mode(&req),
+            "translationMode": translation_mode,
+            "cloudTranslation": cloud_fallback_enabled,
             "translationModel": req.translation_model,
         });
-        let payload_str = serde_json::to_string(&payload)?;
-        match sidecar {
-            Ok(path) => {
-                if let Err(e) = run_sidecar(&app, &handle, &path, &payload_str, &cancel_flag).await {
-                    stage_error(&app, &handle, "asr", &e);
-                    return Err(e);
-                }
-            }
-            Err(e) => {
-                stage_error(&app, &handle, "asr", &e);
-                return Err(e);
-            }
-        }
-        // sidecar emits its own asr/burn/mux progress; mark them done in series.
-        stage_done(&app, &handle, "asr");
-        stage_begin(&app, &handle, "burn", "burning subtitles");
-        stage_done(&app, &handle, "burn");
-        stage_begin(&app, &handle, "mux", "muxing audio + -aspect 16:9");
-        stage_done(&app, &handle, "mux");
+        run_subtitle_pipeline(&payload, &cancel_flag, |stage, intra, message| {
+            emit_progress(
+                &app,
+                &handle.video_id,
+                stage,
+                cumulative(stage) + intra * stage_weight(stage),
+                message,
+                None,
+            );
+        })
+        .await?;
+        drop(permit);
     }
 
     emit_progress(
@@ -494,208 +595,161 @@ async fn run_pipeline(
     Ok(())
 }
 
-/// Spawn the Python sidecar and stream its stdout as progress events.
-///
-/// Uses the same Hermes-venv absolute path lookup as `yt-dlp`
-/// because the bare `python` on PATH may belong to a different
-/// (system / uv) install that doesn't have `faster_whisper`. We
-/// fall back to `python` (PATH lookup) only if no absolute candidate
-/// exists, so on a clean machine without Hermes installed the user
-/// still sees a useful error message instead of "python not found".
+fn cloud_translation_enabled(requested: bool, has_key: bool) -> bool {
+    requested && has_key
+}
+
+fn requested_translation_mode(payload: &serde_json::Value) -> &str {
+    match payload["translationMode"].as_str() {
+        Some("cloud") => "cloud",
+        Some("cloudFallback") => "cloudFallback",
+        _ => "local",
+    }
+}
+
+/// Shared by the GUI and real CLI verification. Translation is a mandatory
+/// barrier BEFORE finalize/burn. Errors and cancellation cannot emit Done.
+pub async fn run_subtitle_pipeline(
+    payload: &serde_json::Value,
+    cancel_flag: &Arc<Mutex<bool>>,
+    progress: impl Fn(&str, f32, &str),
+) -> Result<()> {
+    let script = locate_sidecar()?;
+    let mut step = payload.clone();
+    step["phase"] = serde_json::json!("prepare");
+    run_sidecar(&script, &step.to_string(), cancel_flag, &progress).await?;
+    step["phase"] = serde_json::json!("finalize");
+    if requested_translation_mode(payload) == "cloud" {
+        if !payload["cloudTranslation"].as_bool().unwrap_or(false) {
+            anyhow::bail!("純雲端翻譯需要先在設定中儲存 MiniMax API Key")
+        }
+        progress("translate", 0.0, "使用已選擇的雲端翻譯");
+        let output_dir = payload["outputDir"].as_str().context("missing outputDir")?;
+        let model = payload["translationModel"]
+            .as_str()
+            .filter(|m| !m.trim().is_empty())
+            .unwrap_or("MiniMax-M3");
+        fill_translations(output_dir, model, cancel_flag, &progress).await?;
+        step["translationMode"] = serde_json::json!("cloud");
+        return run_sidecar(&script, &step.to_string(), cancel_flag, &progress).await;
+    }
+    // Local translation is always first. Cloud is an explicit fallback only
+    // when the user selected it and a saved key is available.
+    step["translationMode"] = serde_json::json!("local");
+    match run_sidecar(&script, &step.to_string(), cancel_flag, &progress).await {
+        Ok(()) => Ok(()),
+        Err(local_error) if requested_translation_mode(payload) == "cloudFallback"
+            && payload["cloudTranslation"].as_bool().unwrap_or(false) => {
+            progress("translate", 0.0, "本機翻譯失敗，改用已選擇的雲端翻譯");
+            let output_dir = payload["outputDir"].as_str().context("missing outputDir")?;
+            let model = payload["translationModel"]
+                .as_str()
+                .filter(|m| !m.trim().is_empty())
+                .unwrap_or("MiniMax-M3");
+            fill_translations(output_dir, model, cancel_flag, &progress)
+                .await
+                .with_context(|| format!("本機翻譯失敗（{local_error}），雲端備援也失敗"))?;
+            step["translationMode"] = serde_json::json!("cloud");
+            run_sidecar(&script, &step.to_string(), cancel_flag, &progress).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
 async fn run_sidecar(
-    app: &AppHandle,
-    handle: &JobHandle,
-    py_script: &Path,
+    script: &Path,
     payload: &str,
     cancel_flag: &Arc<Mutex<bool>>,
+    progress: &impl Fn(&str, f32, &str),
 ) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
-
-    // Same lookup table as `download_with_ytdlp` so that on the
-    // operator's machine we find the Hermes venv python (which has
-    // faster_whisper installed) without relying on PATH.
-    let python_candidates = [
-        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe",
-        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/Scripts/python.exe",
-        "%LOCALAPPDATA%/Video2CRT/bin/python.exe",
-        "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/python.exe",
-        "C:/Users/asaialabs/AppData/Local/Programs/Python/Python311/python.exe",
+    let local = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default());
+    let candidates = [
+        local.join("Video2CRT/bin/python.exe"),
+        local.join("hermes/hermes-agent/venv/Scripts/python.exe"),
     ];
-    let localappdata = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string());
-    let python_bin = python_candidates
-        .iter()
-        .map(|c| {
-            if let Some(stripped) = c.strip_prefix("%LOCALAPPDATA%/") {
-                let base = localappdata.trim_end_matches(['/', '\\']);
-                format!("{}/{}", base, stripped)
-            } else {
-                c.to_string()
-            }
-        })
-        .find(|resolved| std::path::Path::new(resolved).exists())
-        .unwrap_or_else(|| "python".to_string());
-
-    // If we resolved to the Hermes venv python, also set PYTHONPATH
-    // so editable installs (hermes-agent) and faster_whisper (under
-    // Lib/site-packages) are importable. Without this the venv python
-    // starts with a sys.path that includes the venv root only, and
-    // editable-installed packages resolve correctly via the site-
-    // customisations that pip leaves behind — but faster_whisper
-    // (a regular install) lives at <venv>/Lib/site-packages which
-    // IS on sys.path, so this is actually belt-and-braces.
-    let mut cmd = cmd_no_window(&python_bin);
-    if python_bin.contains("hermes-agent/venv") {
-        let venv_root = python_bin
-            .trim_end_matches("/Scripts/python.exe")
-            .trim_end_matches("\\Scripts\\python.exe")
-            .trim_end_matches('/');
-        let site_pkgs = format!("{}/Lib/site-packages", venv_root);
-        cmd.env("PYTHONPATH", site_pkgs);
-    }
-    // Force UTF-8 stdio on Windows. Without this, Python on a Traditional
-    // Chinese (cp950) system tries to encode `\ufffd` (a replacement
-    // character produced when the JSON/SRT writer hits invalid UTF-8) as
-    // cp950 and crashes with `UnicodeEncodeError` — even though the file
-    // we wrote is already on disk and the pipeline finished successfully.
-    cmd.env("PYTHONIOENCODING", "utf-8");
-    cmd.env("PYTHONUTF8", "1");
-
-    let mut child = cmd
-        .arg(py_script)
+    let python = candidates
+        .into_iter()
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("python"));
+    let mut child = cmd_no_window(python)
+        .arg(script)
         .arg(payload)
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
+        .env("HF_HUB_DISABLE_TELEMETRY", "1")
+        .env_remove("PYTHONPATH")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
-        .with_context(|| {
-            format!(
-                "could not spawn python sidecar using `{}`. Tried:\n  - Hermes venv\n  - %%LOCALAPPDATA%%\\Video2CRT\\bin\\\n  - WinGet / Program Files Python\n  - bare `python` on PATH.\n\nInstall Python 3.11+ and `pip install faster-whisper`, then retry.",
-                python_bin
-            )
-        })?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow::anyhow!("no stdout from sidecar"))?;
-    // Read stdout byte-by-byte using read_until('\n') and decode each
-    // line as lossy UTF-8. The previous code used
-    // `BufReader::new(stdout).lines()`, which internally calls
-    // `String::from_utf8` on each line and raises
-    // `io::Error::InvalidData("stream did not contain valid UTF-8")`
-    // the moment any non-UTF-8 byte crosses the pipe. That happened
-    // reliably here even though the Python sidecar itself emits valid
-    // UTF-8 — the bytes that crossed the pipe in the failing case
-    // were a stray Windows cp1252 lead byte left in a stdio buffer
-    // between two PROGRESS lines. from_utf8_lossy silently replaces
-    // those with U+FFFD so the read keeps going.
-    let mut reader = BufReader::new(stdout);
-    let mut buf: Vec<u8> = Vec::with_capacity(512);
-    // Spawn a background watcher that kills the child within 200ms of
-    // the user pressing Cancel. Without this, `cancel_flag` is only
-    // checked when a new line arrives — and `faster-whisper` can be
-    // silent for 8+ minutes, so Cancel appears to do nothing and the
-    // user has to kill the whole app.
-    let child_arc: Arc<Mutex<Option<tokio::process::Child>>> =
-        Arc::new(Mutex::new(Some(child)));
-    let cancel_flag_clone = cancel_flag.clone();
-    let child_for_watch = child_arc.clone();
-    let watcher = tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            if *cancel_flag_clone.lock().await {
-                if let Some(c) = child_for_watch.lock().await.as_mut() {
-                    let _ = c.kill().await;
-                }
-                break;
+        .context("無法啟動字幕處理程式")?;
+    // Drain stderr concurrently: a full ffmpeg/model pipe must not deadlock.
+    let stderr = child.stderr.take().context("missing stderr")?;
+    let stderr_task = tokio::spawn(async move {
+        let mut tail = String::new();
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            tail.push_str(&line);
+            tail.push('\n');
+            if tail.len() > 12000 {
+                tail = tail
+                    .chars()
+                    .rev()
+                    .take(6000)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect();
             }
         }
+        tail
     });
+    let mut lines = BufReader::new(child.stdout.take().context("missing stdout")?).lines();
+    let mut poll = tokio::time::interval(std::time::Duration::from_millis(150));
+    let mut sidecar_error = None;
     loop {
-        buf.clear();
-        let n = reader.read_until(b'\n', &mut buf).await?;
-        if n == 0 {
-            // EOF: child closed stdout.
-            break;
-        }
-        // Cancel check on every line so user-cancel stays responsive.
-        // The background `watcher` already handles the silent-ASR case,
-        // but we keep this fast-path here as well.
-        if *cancel_flag.lock().await {
-            if let Some(c) = child_arc.lock().await.as_mut() {
-                let _ = c.kill().await;
+        tokio::select! {
+            _ = poll.tick() => {
+                if *cancel_flag.lock().await {
+                    // Python may be waiting for ffmpeg. Terminate the process tree.
+                    #[cfg(windows)]
+                    if let Some(pid) = child.id() {
+                        let _ = cmd_no_window("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).output().await;
+                    }
+                    let _ = child.kill().await;
+                    stderr_task.abort();
+                    anyhow::bail!("cancelled by user");
+                }
             }
-            anyhow::bail!("cancelled by user");
-        }
-        let line = String::from_utf8_lossy(&buf)
-            .trim_end_matches("\r\n")
-            .to_string();
-        // The sidecar emits JSON lines: PROGRESS {...}, DONE {...}, ERROR {...}.
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("PROGRESS ") {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(rest) {
-                let stage = v.get("stage").and_then(|s| s.as_str()).unwrap_or("asr");
-                let intra = v.get("progress").and_then(|p| p.as_f64()).unwrap_or(0.0) as f32;
-                let msg = v
-                    .get("message")
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let overall = cumulative(stage) + intra * stage_weight(stage);
-                emit_progress(app, &handle.video_id, stage, overall, &msg, None);
-            } else if !trimmed.is_empty() {
-                // JSON parse failed — still surface the line so the
-                // user sees something instead of silent failure.
-                emit_progress(
-                    app,
-                    &handle.video_id,
-                    "asr",
-                    cumulative("asr"),
-                    "sidecar log",
-                    Some(trimmed),
-                );
+            line = lines.next_line() => {
+                let Some(line) = line? else { break };
+                if let Some(json) = line.strip_prefix("PROGRESS ") {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(json) {
+                        progress(v["stage"].as_str().unwrap_or("asr"),
+                            v["progress"].as_f64().unwrap_or(0.0) as f32,
+                            v["message"].as_str().unwrap_or(""));
+                    }
+                } else if let Some(json) = line.strip_prefix("ERROR ") {
+                    sidecar_error = Some(json.to_owned());
+                }
             }
-        } else if let Some(rest) = trimmed.strip_prefix("DONE ") {
-            // Sidecar reports completion inside the same line stream; we
-            // parse it but our outer driver has already accounted for asr/
-            // burn/mux weights via the intra-progress events above.
-            let _ = rest;
-        } else if let Some(rest) = trimmed.strip_prefix("ERROR ") {
-            anyhow::bail!("sidecar error: {}", rest);
-        } else if !trimmed.is_empty() {
-            // Treat as plain log.
-            emit_progress(
-                app,
-                &handle.video_id,
-                "asr",
-                cumulative("asr"),
-                "sidecar log",
-                Some(trimmed),
-            );
         }
     }
-    watcher.abort();
-    let mut child = child_arc.lock().await.take().expect("child already taken");
     let status = child.wait().await?;
+    let stderr = stderr_task.await.unwrap_or_default();
+    if let Some(error) = sidecar_error {
+        anyhow::bail!("字幕處理失敗：{error}");
+    }
     if !status.success() {
-        anyhow::bail!("sidecar exited with {status:?}");
+        anyhow::bail!("字幕處理失敗 ({status})：{stderr}");
+    }
+    if *cancel_flag.lock().await {
+        anyhow::bail!("cancelled by user");
     }
     Ok(())
 }
 
-/// Find the bundled Python sidecar script.
-///
-/// In development (`cargo run`), the script lives at
-/// `<repo>/src-tauri/bin/pipeline_cli.py` relative to the project
-/// root. When the .exe is launched from `target/release/video2crt.exe`,
-/// the cwd is `target/release/` and the candidates below wouldn't
-/// resolve. We use `CARGO_MANIFEST_DIR` (set at compile time) for the
-/// development build path, and `env::current_exe().parent()` to walk
-/// back from the released binary to the repo root for the release
-/// build path.
-///
-/// Production bundle (Phase 2): embed pipeline_cli.py via Tauri's
-/// `tauri::path::ResourcePath::resolve` so the sidecar is next to
-/// the .exe at runtime. Tracked in HANDOFF Phase 2.
 fn locate_sidecar() -> Result<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -797,17 +851,13 @@ fn emit_progress(
 ) {
     // Breadcrumb log every emit so we can tell whether the Rust side
     // is publishing events the UI is failing to receive.
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(std::path::PathBuf::from(
-            std::env::var("USERPROFILE").unwrap_or_default(),
-        )
-        .join("Documents")
-        .join("Hermes")
-        .join("Video2CRT")
-        .join("video2crt-startup.log"))
-    {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(
+        std::path::PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default())
+            .join("Documents")
+            .join("Hermes")
+            .join("Video2CRT")
+            .join("video2crt-startup.log"),
+    ) {
         use std::io::Write as _;
         let _ = writeln!(
             f,
@@ -856,54 +906,51 @@ fn derive_video_id(url: &str) -> String {
     s
 }
 
-/// Sanitize a YouTube video title into a safe directory name on
-/// Windows. Strips characters illegal in NTFS file names (`<>:"/\|?*`)
-/// AND shell metacharacters that break `yt-dlp -o` template expansion
-/// on Windows (`& , ;` confuse both `CommandLineToArgvW` parsing and
-/// yt-dlp's internal `%(ext)s` substitution, producing `[Errno 22]
-/// Invalid argument` from the subprocess), collapses whitespace to
-/// single underscores, trims leading/trailing dots and spaces, and
-/// falls back to the video id if the result is empty (e.g. the title
-/// was only punctuation).
-fn safe_dirname(raw_title: &str, video_id: &str) -> String {
-    let mut out: String = raw_title
+/// Preserve the displayed title, replacing only Windows-invalid characters.
+fn safe_dirname(raw_title: &str, _video_id: &str) -> String {
+    let title: String = raw_title
         .chars()
         .map(|c| match c {
-            // NTFS-illegal characters.
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
-            // Shell metacharacters that confuse yt-dlp -o templates
-            // and Windows CreateProcess argv parsing.
-            '&' | ',' | ';' | '\'' | '`' | '$' | '(' | ')' | '{' | '}' => '_',
-            c if c.is_control() => '_',
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '＿',
+            c if c.is_control() => ' ',
             c => c,
         })
+        .take(120)
         .collect();
-    // Collapse runs of whitespace and underscores into a single underscore.
-    let mut collapsed = String::with_capacity(out.len());
-    let mut prev_underscore = false;
-    for ch in out.chars() {
-        if ch.is_whitespace() || ch == '_' {
-            if !prev_underscore && !collapsed.is_empty() {
-                collapsed.push('_');
-                prev_underscore = true;
-            }
+    let title = title.trim().trim_end_matches('.');
+    let mut title = if title.is_empty() {
+        "未命名影片".to_owned()
+    } else {
+        title.to_owned()
+    };
+    let stem = title.split('.').next().unwrap_or("").to_ascii_uppercase();
+    if ["CON", "PRN", "AUX", "NUL"].contains(&stem.as_str())
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit())
+    {
+        title.insert(0, '_');
+    }
+    title
+}
+
+/// Atomically reserve a new title folder; never overwrite a previous conversion.
+fn reserve_output_dir(base: &Path, title: &str) -> Result<PathBuf> {
+    std::fs::create_dir_all(base)?;
+    for number in 1..10000 {
+        let name = if number == 1 {
+            title.to_owned()
         } else {
-            collapsed.push(ch);
-            prev_underscore = false;
+            format!("{title} ({number})")
+        };
+        let candidate = base.join(name);
+        match std::fs::create_dir(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e).context("無法建立影片標題資料夾"),
         }
     }
-    // Trim trailing dots / spaces — Windows refuses file names ending
-    // in `.` or ` `.
-    while collapsed.ends_with('.') || collapsed.ends_with(' ') {
-        collapsed.pop();
-    }
-    let trimmed = collapsed.trim_matches(|c: char| c == '_').to_string();
-    if trimmed.is_empty() {
-        format!("yt_{video_id}")
-    } else {
-        // NTFS path length limit is 260 chars; keep this safe.
-        trimmed.chars().take(120).collect()
-    }
+    anyhow::bail!("同名影片資料夾過多，請選擇另一個輸出位置")
 }
 
 /// Fetch the video title via a metadata-only yt-dlp invocation. We
@@ -911,7 +958,7 @@ fn safe_dirname(raw_title: &str, video_id: &str) -> String {
 /// directory using the human-readable title. Fails open to the
 /// video id if the metadata call errors (network blip, age-gate,
 /// unavailable) so the pipeline still completes.
-async fn fetch_video_title(url: &str, video_id: &str) -> String {
+async fn fetch_video_title(url: &str, _video_id: &str) -> Result<String> {
     // Try each yt-dlp candidate from the same lookup table
     // download_with_ytdlp uses (kept short here — metadata fetch is
     // best-effort and we don't want a long lookup failure delay).
@@ -930,63 +977,63 @@ async fn fetch_video_title(url: &str, video_id: &str) -> String {
             .join("node.exe")
             .to_string_lossy()
     );
-    // Hard 5s cap on the whole title-fetch attempt. Playlist URLs
+    // Bound the whole title-fetch attempt. Playlist URLs
     // (e.g. `&list=RDxxx&start_radio=1`) make yt-dlp try to resolve
-    // the entire mix, which can hang indefinitely. If we can't get
-    // the title in 5s, fall back to `yt_<id>` rather than block the
-    // whole pipeline — the title is decorative, not functional.
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        async {
-            for bin in &candidates {
-                if *bin != "yt-dlp" && !std::path::Path::new(bin).exists() {
-                    continue;
-                }
-                let mut cmd = cmd_no_window(bin);
-                cmd.env_remove("PYTHONPATH"); // not needed for metadata fetch
-                // NO `PYTHONIOENCODING=utf-8` here — yt-dlp's already-bound
-                // `sys.stdout` writer ignores it anyway, but setting it
-                // makes yt-dlp try to re-encode progress strings as UTF-8
-                // and crash with `[Errno 22] Invalid argument` on cp950
-                // consoles when a non-cp950 byte (e.g. `×`) shows up.
-                // We rely on piped stdout + strict `from_utf8` decode in
-                // Rust instead.
-                if let Ok(out) = cmd
-                    .arg("--no-playlist") // never expand `list=RD...` to a mix
-                    .arg("--skip-download")
-                    .arg("--js-runtimes")
-                    .arg(format!("node:{}", node_exe))
-                    .arg("--remote-components")
-                    .arg("ejs:github")
-                    .arg("--print")
-                    .arg("title")
-                    .arg(url)
-                    .output()
-                    .await
-                {
-                    if out.status.success() {
-                        // Strict UTF-8 decode. `from_utf8_lossy` would
-                        // inject U+FFFD for invalid bytes, and that
-                        // replacement character then leaks into the
-                        // output directory name as `?` on NTFS.
-                        // Decoding failures are non-fatal — we just
-                        // fall through to the next candidate.
-                        if let Ok(s) = std::str::from_utf8(&out.stdout) {
-                            let title = s.trim().to_string();
-                            if !title.is_empty() && title.len() < 256 {
+    // the entire mix, which can hang indefinitely. If the title cannot
+    // be obtained, return an error before creating an output directory.
+    let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        for bin in &candidates {
+            if *bin != "yt-dlp" && !std::path::Path::new(bin).exists() {
+                continue;
+            }
+            let mut cmd = cmd_no_window(bin);
+            cmd.env_remove("PYTHONPATH");
+            cmd.env("PYTHONIOENCODING", "utf-8").kill_on_drop(true);
+            // NO `PYTHONIOENCODING=utf-8` here — yt-dlp's already-bound
+            // `sys.stdout` writer ignores it anyway, but setting it
+            // makes yt-dlp try to re-encode progress strings as UTF-8
+            // and crash with `[Errno 22] Invalid argument` on cp950
+            // consoles when a non-cp950 byte (e.g. `×`) shows up.
+            // We rely on piped stdout + strict `from_utf8` decode in
+            // Rust instead.
+            if let Ok(out) = cmd
+                .arg("--no-playlist") // never expand `list=RD...` to a mix
+                .arg("--skip-download")
+                .arg("--encoding")
+                .arg("utf-8")
+                .arg("--js-runtimes")
+                .arg(format!("node:{}", node_exe))
+                .arg("--remote-components")
+                .arg("ejs:github")
+                .arg("--print")
+                .arg("%(title)j")
+                .arg(url)
+                .output()
+                .await
+            {
+                if out.status.success() {
+                    // Strict UTF-8 decode. `from_utf8_lossy` would
+                    // inject U+FFFD for invalid bytes, and that
+                    // replacement character then leaks into the
+                    // output directory name as `?` on NTFS.
+                    // Decoding failures are non-fatal — we just
+                    // fall through to the next candidate.
+                    if let Ok(s) = std::str::from_utf8(&out.stdout) {
+                        if let Ok(title) = serde_json::from_str::<String>(s.trim()) {
+                            if !title.trim().is_empty() {
                                 return Some(title);
                             }
                         }
                     }
                 }
             }
-            None
-        },
-    )
+        }
+        None
+    })
     .await;
     match result {
-        Ok(Some(title)) => title,
-        _ => format!("yt_{video_id}"),
+        Ok(Some(title)) => Ok(title),
+        _ => anyhow::bail!("無法取得 YouTube 影片標題，請確認網址或網路後重試；尚未建立輸出資料夾"),
     }
 }
 
@@ -1054,7 +1101,8 @@ async fn download_with_ytdlp(
 
     let mut child = cmd_no_window(bin)
         .arg("-o")
-        .arg(format!("{}/source.%(ext)s", outdir.display()))
+        .arg("source.%(ext)s")
+        .current_dir(outdir)
         // Don't pin to mp4 only - YouTube serves vp9/av1/opus/webm as well.
         // Let yt-dlp pick best video+audio and we re-mux to mp4 ourselves.
         .arg("-f")
@@ -1141,25 +1189,14 @@ async fn download_with_ytdlp(
                 continue;
             }
             last_err = line.clone();
-            emit_progress(
-                &app_b,
-                &vid_b,
-                "download",
-                0.0,
-                "yt-dlp log",
-                Some(&line),
-            );
+            emit_progress(&app_b, &vid_b, "download", 0.0, "yt-dlp log", Some(&line));
         }
         last_err
     });
 
     // 10-minute hard timeout so we don't hang forever on stuck downloads
     // (e.g. YouTube 403 / JS-runtime issues).
-    let status = match tokio::time::timeout(
-        std::time::Duration::from_secs(600),
-        child.wait(),
-    )
-    .await
+    let status = match tokio::time::timeout(std::time::Duration::from_secs(600), child.wait()).await
     {
         Ok(r) => r?,
         Err(_) => {
@@ -1177,7 +1214,11 @@ async fn download_with_ytdlp(
         anyhow::bail!(
             "yt-dlp failed (exit {:?}): {}",
             status.code(),
-            if last_err_line.is_empty() { "(no stderr)".to_string() } else { last_err_line }
+            if last_err_line.is_empty() {
+                "(no stderr)".to_string()
+            } else {
+                last_err_line
+            }
         );
     }
     Ok(())
@@ -1258,7 +1299,11 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
         .ok()
         .and_then(|o| {
             if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_ascii_lowercase())
+                Some(
+                    String::from_utf8_lossy(&o.stdout)
+                        .trim()
+                        .to_ascii_lowercase(),
+                )
             } else {
                 None
             }
@@ -1270,10 +1315,16 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
     // fall back to software decode. This mirrors `ffprobe → decoder` logic.
     match codec.as_str() {
         "h264" | "avc" => {
-            cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("h264_cuvid");
+            cmd.arg("-hwaccel")
+                .arg("cuda")
+                .arg("-c:v")
+                .arg("h264_cuvid");
         }
         "hevc" | "h265" => {
-            cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("hevc_cuvid");
+            cmd.arg("-hwaccel")
+                .arg("cuda")
+                .arg("-c:v")
+                .arg("hevc_cuvid");
         }
         "vp9" => {
             cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("vp9_cuvid");
@@ -1312,6 +1363,61 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
     Ok(())
 }
 
+/// Translate structured ASR cues, preserving source text and timestamps.
+/// Chinese never calls the API. Failed translations stop before the video burn.
+async fn fill_translations(
+    output_dir: &str,
+    model: &str,
+    cancel_flag: &Arc<Mutex<bool>>,
+    progress: &impl Fn(&str, f32, &str),
+) -> Result<usize> {
+    let dir = PathBuf::from(output_dir);
+    let segments: Vec<serde_json::Value> = serde_json::from_str(
+        &tokio::fs::read_to_string(dir.join("subtitle_segments.json")).await?,
+    )?;
+    let translation_path = dir.join("subtitle_translations.json");
+    let mut translated: serde_json::Map<String, serde_json::Value> =
+        match tokio::fs::read_to_string(&translation_path).await {
+            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+            Err(_) => serde_json::Map::new(),
+        };
+    let pending: Vec<_> = segments
+        .iter()
+        .filter(|s| {
+            s["language"].as_str() != Some("zh")
+                && s["text"]
+                    .as_str()
+                    .is_some_and(|text| !translated.contains_key(text))
+        })
+        .collect();
+    for (i, segment) in pending.iter().enumerate() {
+        if *cancel_flag.lock().await {
+            anyhow::bail!("cancelled by user");
+        }
+        let text = segment["text"].as_str().context("missing subtitle text")?;
+        if !translated.contains_key(text) {
+            let future = crate::translator::translate_text(text, model);
+            tokio::pin!(future);
+            let zh = loop {
+                tokio::select! {
+                    result = &mut future => { break result?; }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {
+                        if *cancel_flag.lock().await { anyhow::bail!("cancelled by user"); }
+                    }
+                }
+            };
+            translated.insert(text.to_owned(), serde_json::json!(zh));
+        }
+        progress(
+            "translate",
+            (i + 1) as f32 / pending.len().max(1) as f32,
+            &format!("雲端翻譯 {}/{}", i + 1, pending.len()),
+        );
+    }
+    tokio::fs::write(translation_path, serde_json::to_vec_pretty(&translated)?).await?;
+    Ok(translated.len())
+}
+
 /// Locate ffmpeg.exe on Windows.
 async fn locate_ffmpeg() -> Result<String> {
     for candidate in [
@@ -1328,4 +1434,104 @@ async fn locate_ffmpeg() -> Result<String> {
         }
     }
     anyhow::bail!("ffmpeg not found")
+}
+
+#[cfg(test)]
+mod subtitle_output_tests {
+    use super::*;
+
+    #[test]
+    fn missing_api_key_falls_back_to_local_translation() {
+        assert!(!cloud_translation_enabled(true, false));
+        assert!(!cloud_translation_enabled(false, true));
+        assert!(cloud_translation_enabled(true, true));
+    }
+
+    #[test]
+    fn subtitle_modes_preserve_legacy_bilingual_default() {
+        let mut req: StartJobRequest = serde_json::from_value(serde_json::json!({
+            "url": "https://example.com", "cloudTranslation": false
+        })).unwrap();
+        assert_eq!(subtitle_mode(&req), "bilingual");
+        req.subtitle_mode = Some("original".into());
+        assert_eq!(subtitle_mode(&req), "original");
+        req.subtitle_mode = Some("none".into());
+        assert_eq!(subtitle_mode(&req), "none");
+    }
+
+    #[test]
+    fn title_keeps_chinese_spaces_and_valid_punctuation() {
+        assert_eq!(
+            safe_dirname("初戀 - 回春丹 (Live) & Friends' 100%", "abc"),
+            "初戀 - 回春丹 (Live) & Friends' 100%"
+        );
+        assert_eq!(safe_dirname("A: B / C?", "abc"), "A＿ B ＿ C＿");
+        assert_eq!(safe_dirname("CON.txt", "abc"), "_CON.txt");
+        assert!(!safe_dirname("", "abc").starts_with("yt_"));
+    }
+
+    #[test]
+    fn default_output_has_no_id_folder() {
+        let req: StartJobRequest = serde_json::from_value(serde_json::json!({
+            "url": "https://www.youtube.com/watch?v=abc", "cloudTranslation": false
+        }))
+        .unwrap();
+        assert_eq!(
+            resolve_output_dir(&req, Path::new("project")),
+            PathBuf::from(std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).unwrap()).join("Desktop")
+        );
+    }
+
+    #[test]
+    fn existing_title_is_never_overwritten() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../test-out/title-contract")
+            .join(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+                    .to_string(),
+            );
+        let first = reserve_output_dir(&root, "中文影片").unwrap();
+        std::fs::write(first.join("keep.txt"), "original").unwrap();
+        let second = reserve_output_dir(&root, "中文影片").unwrap();
+        assert_eq!(second.file_name().unwrap(), "中文影片 (2)");
+        assert_eq!(
+            std::fs::read_to_string(first.join("keep.txt")).unwrap(),
+            "original"
+        );
+    }
+
+    #[tokio::test]
+    async fn chinese_cloud_mode_does_not_need_a_key() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../test-out/cloud-chinese")
+            .join(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+                    .to_string(),
+            );
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("subtitle_segments.json"),
+            r#"[{"language":"zh","text":"你好"}]"#,
+        )
+        .unwrap();
+        let count = fill_translations(
+            root.to_str().unwrap(),
+            "unused",
+            &Arc::new(Mutex::new(false)),
+            &|_, _, _| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(
+            std::fs::read_to_string(root.join("subtitle_translations.json")).unwrap(),
+            "{}"
+        );
+    }
 }

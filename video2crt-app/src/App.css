@@ -452,6 +452,15 @@ textarea {
   color: var(--accent);
 }
 
+.progress-video-title {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stage-chips {
   display: flex;
   flex-wrap: wrap;

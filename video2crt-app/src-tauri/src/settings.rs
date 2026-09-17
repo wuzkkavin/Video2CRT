@@ -43,3 +43,19 @@ pub fn delete_api_key() -> Result<()> {
     let _ = e.delete_credential();
     Ok(())
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_credential_manager_round_trip_uses_isolated_test_entry() {
+        let service = format!("Video2CRT-Test-{}", std::process::id());
+        let credential = Entry::new(&service, "round-trip").unwrap();
+        let test_value = "test-only-not-a-real-api-key";
+        credential.set_password(test_value).unwrap();
+        assert_eq!(credential.get_password().unwrap(), test_value);
+        credential.delete_credential().unwrap();
+        assert!(credential.get_password().is_err());
+    }
+}

@@ -26,7 +26,9 @@ export interface ProgressPageProps {
   message: string;
   logs: LogEntry[];
   errorMessage: string | null;
+  videoTitle: string | null;
   onCancel: () => void;
+  onRestart: () => void;
 }
 
 const STAGE_ORDER: ReadonlyArray<{ stage: PipelineStage; label: string }> = [
@@ -34,6 +36,7 @@ const STAGE_ORDER: ReadonlyArray<{ stage: PipelineStage; label: string }> = [
   { stage: "cropdetect", label: "裁切偵測" },
   { stage: "render", label: "CRT 渲染" },
   { stage: "asr", label: "ASR" },
+  { stage: "translate", label: "字幕翻譯" },
   { stage: "burn", label: "字幕燒錄" },
   { stage: "mux", label: "封裝" },
 ];
@@ -74,7 +77,9 @@ export function ProgressPage({
   message,
   logs,
   errorMessage,
+  videoTitle,
   onCancel,
+  onRestart,
 }: ProgressPageProps) {
   const logRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -104,6 +109,7 @@ export function ProgressPage({
         <h2>{isError ? "轉檔失敗" : "轉檔進行中…"}</h2>
         <span className="progress-pct">{pctText}</span>
       </div>
+      {videoTitle ? <div className="progress-video-title">{videoTitle}</div> : null}
 
       <div className="stage-chips">
         {STAGE_ORDER.map(({ stage, label }) => (
@@ -157,6 +163,7 @@ export function ProgressPage({
       </div>
 
       <div className="progress-actions">
+        {isError ? <button className="btn" onClick={onRestart}>返回重試</button> : null}
         <button
           className="btn btn-danger"
           onClick={onCancel}
