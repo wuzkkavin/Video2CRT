@@ -82,12 +82,10 @@ def burn_subtitles_local(raw: Path, srt: Path, subtitled: Path, cwd_dir: Path) -
     cmd = [
         "ffmpeg", "-y", "-i", "raw.mp4",
         "-vf", f"subtitles=zh-Hant.srt:force_style='{force_style}'",
-        # The CRT render is libx264 CRF 18. Re-encoding it with NVENC CQ 23
-        # after adding subtitles visibly softens low-resolution sources and
-        # makes output quality depend on whether subtitles were selected.
-        # Match the CRT render's codec and quality here so subtitles do not
-        # change the visual result.
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
+        # Keep the established subtitle-burn encoder settings. They are the
+        # settings used by the user-approved visual baseline; subtitle work
+        # must not alter the CRT render, crop, sizing, or its appearance.
+        "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23",
         "-pix_fmt", "yuv420p", "-an", "subtitled.mp4",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(cwd_dir), timeout=300)

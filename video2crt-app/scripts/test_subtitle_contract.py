@@ -58,16 +58,16 @@ class SubtitleContract(unittest.TestCase):
         self.assertEqual(calls, [True, False])
         self.assertEqual(result[0]["text"], "テスト")
 
-    def test_subtitle_burn_matches_crt_render_quality(self):
-        """Burning captions must not downgrade the CRT render's CRF 18 quality."""
+    def test_subtitle_burn_keeps_approved_crt_encoder(self):
+        """Subtitle work must retain the user-approved CRT output encoder."""
         captured = []
         with patch.object(pipeline.subprocess, "run", side_effect=lambda command, **_kwargs:
                           captured.append(command) or types.SimpleNamespace(returncode=0, stderr="")):
             pipeline.burn_subtitles_local(
                 Path("raw.mp4"), Path("zh-Hant.srt"), Path("subtitled.mp4"), Path("."))
         command = captured[0]
-        self.assertEqual(command[command.index("-c:v") + 1], "libx264")
-        self.assertEqual(command[command.index("-crf") + 1], "18")
+        self.assertEqual(command[command.index("-c:v") + 1], "h264_nvenc")
+        self.assertEqual(command[command.index("-cq") + 1], "23")
 
     def test_official_traditional_track_aligns_by_largest_time_overlap(self):
         source = [

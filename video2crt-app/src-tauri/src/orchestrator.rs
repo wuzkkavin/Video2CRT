@@ -254,7 +254,7 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     // Fetch the video title before reserving the working directory.
     // A metadata failure stops here, so no ID-named fallback directory
     // can be created and no previous result can be overwritten.
-    let title = fetch_video_title(&req.url, &video_id).await?;
+    let title = fetch_video_title(&req.url).await?;
     breadcrumb_log(&format!("B0: fetched video title: {title}"));
     let sub_dir_name = safe_dirname(&title, &video_id);
     let output_dir = reserve_output_dir(&base_output_dir, &sub_dir_name)?;
@@ -958,83 +958,36 @@ fn reserve_output_dir(base: &Path, title: &str) -> Result<PathBuf> {
 /// directory using the human-readable title. Fails open to the
 /// video id if the metadata call errors (network blip, age-gate,
 /// unavailable) so the pipeline still completes.
-async fn fetch_video_title(url: &str, _video_id: &str) -> Result<String> {
-    // Try each yt-dlp candidate from the same lookup table
-    // download_with_ytdlp uses (kept short here — metadata fetch is
-    // best-effort and we don't want a long lookup failure delay).
-    let candidates = [
-        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
-        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/Scripts/yt-dlp.exe",
-        "yt-dlp",
-    ];
-    let localappdata = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string());
-    let node_exe = format!(
-        "{}",
-        std::path::Path::new(&localappdata)
-            .join("hermes")
-            .join("node")
-            .join("node.exe")
-            .to_string_lossy()
-    );
-    // Bound the whole title-fetch attempt. Playlist URLs
-    // (e.g. `&list=RDxxx&start_radio=1`) make yt-dlp try to resolve
-    // the entire mix, which can hang indefinitely. If the title cannot
-    // be obtained, return an error before creating an output directory.
-    let result = tokio::time::timeout(std::time::Duration::from_secs(30), async {
-        for bin in &candidates {
-            if *bin != "yt-dlp" && !std::path::Path::new(bin).exists() {
-                continue;
-            }
-            let mut cmd = cmd_no_window(bin);
-            cmd.env_remove("PYTHONPATH");
-            cmd.env("PYTHONIOENCODING", "utf-8").kill_on_drop(true);
-            // NO `PYTHONIOENCODING=utf-8` here — yt-dlp's already-bound
-            // `sys.stdout` writer ignores it anyway, but setting it
-            // makes yt-dlp try to re-encode progress strings as UTF-8
-            // and crash with `[Errno 22] Invalid argument` on cp950
-            // consoles when a non-cp950 byte (e.g. `×`) shows up.
-            // We rely on piped stdout + strict `from_utf8` decode in
-            // Rust instead.
-            if let Ok(out) = cmd
-                .arg("--no-playlist") // never expand `list=RD...` to a mix
-                .arg("--skip-download")
-                .arg("--encoding")
-                .arg("utf-8")
-                .arg("--js-runtimes")
-                .arg(format!("node:{}", node_exe))
-                .arg("--remote-components")
-                .arg("ejs:github")
-                .arg("--print")
-                .arg("%(title)j")
-                .arg(url)
-                .output()
-                .await
-            {
-                if out.status.success() {
-                    // Strict UTF-8 decode. `from_utf8_lossy` would
-                    // inject U+FFFD for invalid bytes, and that
-                    // replacement character then leaks into the
-                    // output directory name as `?` on NTFS.
-                    // Decoding failures are non-fatal — we just
-                    // fall through to the next candidate.
-                    if let Ok(s) = std::str::from_utf8(&out.stdout) {
-                        if let Ok(title) = serde_json::from_str::<String>(s.trim()) {
-                            if !title.trim().is_empty() {
-                                return Some(title);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    })
-    .await;
-    match result {
-        Ok(Some(title)) => Ok(title),
-        _ => anyhow::bail!("無法取得 YouTube 影片標題，請確認網址或網路後重試；尚未建立輸出資料夾"),
+#[derive(Deserialize)]
+struct YoutubeOembed {
+    title: String,
+}
+
+/// Get the public video title before reserving the output directory.
+/// This uses YouTube's oEmbed endpoint, so it does not run an extra yt-dlp
+/// extraction before the actual download. A title remains mandatory because
+/// output folders must use the YouTube title rather than an ID fallback.
+async fn fetch_video_title(url: &str) -> Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .context("建立 YouTube 標題查詢失敗")?;
+    let response = client
+        .get("https://www.youtube.com/oembed")
+        .query(&[("url", url), ("format", "json")])
+        .send()
+        .await
+        .context("查詢 YouTube 公開影片標題失敗")?
+        .error_for_status()
+        .context("YouTube 無法提供此影片的公開標題")?;
+    let metadata = response
+        .json::<YoutubeOembed>()
+        .await
+        .context("YouTube 回傳的影片標題格式無法讀取")?;
+    if metadata.title.trim().is_empty() {
+        anyhow::bail!("YouTube 未提供影片標題；尚未建立輸出資料夾")
     }
+    Ok(metadata.title)
 }
 
 /// Stage 1: invoke yt-dlp to download the source video.
@@ -1050,6 +1003,50 @@ async fn download_with_ytdlp(
     handle: &JobHandle,
     url: &str,
     outdir: &Path,
+) -> Result<()> {
+    match download_with_ytdlp_attempt(app, handle, url, outdir, None).await {
+        Ok(()) => Ok(()),
+        Err(default_error) if needs_embedded_client_fallback(&default_error.to_string()) => {
+            // YouTube may require a PO Token for the normal web client.  Keep
+            // that client as the first choice because it preserves the normal
+            // high-quality format selection.  `web_embedded` is a documented
+            // no-PO-client fallback for public videos that allow embedding.
+            // It is attempted only after this specific gate error, never for
+            // ordinary download failures.
+            emit_progress(
+                app,
+                &handle.video_id,
+                "download",
+                0.0,
+                "YouTube 要求驗證；改用相容下載模式重試一次",
+                None,
+            );
+            download_with_ytdlp_attempt(app, handle, url, outdir, Some("web_embedded"))
+                .await
+                .context("YouTube 驗證限制下的相容下載模式也失敗")
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Return true only for the YouTube access gates for which yt-dlp documents a
+/// no-PO embedded client.  This keeps all unrelated download failures on the
+/// original path and prevents retry loops.
+fn needs_embedded_client_fallback(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("missing required visitor data")
+        || error.contains("po token")
+        || error.contains("http error 429")
+}
+
+/// One yt-dlp invocation.  The primary call passes no explicit player client;
+/// an embedded client is used only by the caller's documented fallback.
+async fn download_with_ytdlp_attempt(
+    app: &AppHandle,
+    handle: &JobHandle,
+    url: &str,
+    outdir: &Path,
+    player_client: Option<&str>,
 ) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -1099,7 +1096,8 @@ async fn download_with_ytdlp(
         None,
     );
 
-    let mut child = cmd_no_window(bin)
+    let mut command = cmd_no_window(bin);
+    command
         .arg("-o")
         .arg("source.%(ext)s")
         .current_dir(outdir)
@@ -1144,7 +1142,13 @@ async fn download_with_ytdlp(
         // this flag we got 533KB-33MB (low quality); with it we should
         // get the full bitrate.
         .arg("--remote-components")
-        .arg("ejs:github")
+        .arg("ejs:github");
+    if let Some(player_client) = player_client {
+        command
+            .arg("--extractor-args")
+            .arg(format!("youtube:player_client={player_client}"));
+    }
+    let mut child = command
         .arg(url)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1480,6 +1484,18 @@ mod subtitle_output_tests {
             resolve_output_dir(&req, Path::new("project")),
             PathBuf::from(std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).unwrap()).join("Desktop")
         );
+    }
+
+    #[test]
+    fn only_youtube_access_gates_trigger_embedded_fallback() {
+        assert!(needs_embedded_client_fallback(
+            "WARNING: [youtube] Unable to fetch GVS PO Token for web client: Missing required Visitor Data"
+        ));
+        assert!(needs_embedded_client_fallback(
+            "WARNING: [youtube] Unable to download webpage: HTTP Error 429: Too Many Requests"
+        ));
+        assert!(!needs_embedded_client_fallback("ffmpeg failed: Invalid argument"));
+        assert!(!needs_embedded_client_fallback("video is private"));
     }
 
     #[test]
