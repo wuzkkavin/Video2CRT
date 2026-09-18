@@ -268,6 +268,11 @@ ffprobe -v error -show_streams source.mp4
 6. 任何下載器回退應只針對明確錯誤條件、只執行有限次數，並保留原本成功時的高畫質路徑。
 7. 每次改動都先看 Git 工作樹。此專案的父層存在歷史輸出與未提交成果，提交時必須只 stage 指定檔案。
 
+
+### CRT skill gotcha 版本基準
+
+接手者在處理影片、字幕、裁切或 CRT 前，必須在專案根目錄執行 `python scripts/install_skill.py`。目前本機實測為 **38 條 gotcha**，編號為 **0–31、33–38**；32 號沒有條目。自檢程式中的 `EXPECTED_GOTCHA_COUNT = 36` 只表示最低新鮮度門檻，並非總數。請記錄每次輸出的 `Found N gotchas in SKILL.md`；若少於 36、skill 找不到或依賴檢查失敗，先停止並釐清環境，不要開始轉檔。舊 handoff、CHANGELOG 或截圖中出現的 21、23、30 都是歷史數字，不能當作目前規格。
+
 ## 11. 建議的修改順序
 
 對新 bug 採以下順序，避免再次連鎖破壞：

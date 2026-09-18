@@ -1,5 +1,55 @@
 # Video2CRT - HANDOFF
 
+## 收工紀錄 — 2026-09-18
+
+### 本輪完成
+
+- 完成 Tauri 桌面版的字幕輸出、翻譯選項、影片標題輸出資料夾與 Credential Manager API Key 流程。
+- 修正下載前以 yt-dlp 查標題造成的額外請求，改用 YouTube oEmbed；下載遇到 PO Token、Visitor Data 或 HTTP 429 時，才以 `web_embedded` client 有限重試一次。
+- 恢復使用者認可的字幕燒錄設定：NVENC、`p4`、`cq 23`；CRT shader、裁切與渲染策略沒有在這次下載修復中改動。
+- 新增並提交 `video2crt-app/DEVELOPMENT_GUIDE.md`，記錄架構、資料流、字幕與影片格式、隱私、驗收、常見問題與維護規則。
+- 已提交兩個本輪相關 commit：`b738581` 與 `1abd188`。
+
+### 當輪驗證
+
+- `npm run build`：通過。
+- `python -m unittest scripts/test_subtitle_contract.py -q`：26 項通過。
+- Rust 下載回退單元測試：通過。
+- 同一支 ANA 公開測試影片以 embedded client 實際下載成功；取得 1440×1080 AV1 視訊與 Opus 音訊。
+- 手冊已通過 Markdown 結構、敏感字串與 Git diff 空白檢查。
+
+### CRT skill gotcha 版本基準（接手必讀）
+
+- 目前安裝的 `video-crt-geom-libplacebo/SKILL.md` 由 `scripts/install_skill.py` 實測為 **38 條 gotcha**。
+- 編號目前為 **0–31、33–38**；**32 號沒有對應條目**。因此不可用「最大編號」推估總數，也不可自行補寫 32 號。
+- `EXPECTED_GOTCHA_COUNT = 36` 是自檢的**最低新鮮度門檻**，不是實際總數。看到 `[ALL PASS] Skill v36+` 代表至少達到門檻；接手時仍應記錄實際輸出的 `Found N gotchas in SKILL.md`。
+- 本次確認的 `N` 是 **38**。舊段落中出現的 21、23 或 30 都是歷史版本資訊，不得當作目前規格。
+- 每次開始新的影片或修正前，從專案根目錄執行 `python scripts/install_skill.py`；若 skill 不存在、依賴缺少或實際條數低於 36，先停止處理並回報。
+
+
+### Git 狀態
+
+- 分支：`main`；最新 commit：`1abd188 fix: recover YouTube download and document pipeline`。
+- 本輪只提交四個檔案：開發手冊、下載協調器、字幕燒錄設定、字幕契約測試。
+- 工作樹仍有大量既存的輸出、歷史 handoff、歌詞資料與暫存修改；未刪除、還原、加入 stage 或提交它們。
+- `video2crt-app/src-tauri/src/lib.rs` 與 `video2crt-app/src/lib/types.ts` 仍顯示行尾格式的工作樹差異，忽略行尾後無內容差異，未提交。
+
+### 未完成與風險
+
+- 最新程式碼尚未完成一次從 GUI 啟動到 `final.mp4` 的全流程視覺 E2E；不可宣稱整條流程已重新驗收。
+- 乾淨 Windows 使用者帳戶的依賴自動準備與 NSIS 安裝流程尚未完成驗證，不可視為可直接散佈的安裝包。
+- YouTube 的 PO Token、嵌入權限與連線限制會隨服務端變動；embedded client 只是一條受限回退，不使用帳號 Cookie。
+
+### 接手順序
+
+1. 先讀 `video2crt-app/DEVELOPMENT_GUIDE.md`。
+2. 檢查 `git status`，保留所有既有未提交輸出。
+3. 若繼續修正，先在新的隔離輸出資料夾完成 GUI 到 `final.mp4` 的 E2E，再動任何 CRT、裁切或字幕設定。
+4. 若要處理可散佈性，獨立完成依賴準備與乾淨帳戶安裝驗收；不要與字幕修正混在同一個變更。
+
+---
+
+
 給未來對話或接手 agent 的完整指引。
 
 ## 你是新對話嗎？
@@ -10,11 +60,11 @@
 
 1. **第一步（必做）：跑 install_skill.py 驗證環境與 skill**：
    ```bash
-   cd "C:/Users/<you>/Documents/Hermes/Video2CRT"
+   cd "<使用者家目錄>/Documents/Hermes/Video2CRT"
    python scripts/install_skill.py
    ```
-   **必須看到** `[ALL PASS] Skill v23 installed and dependencies OK.`，否則**不要**給用戶任何結論。
-   若 `Found N gotchas` < 23 警告 → 該 skill 不是最新版，需先 `cd %LOCALAPPDATA%/hermes && git pull` 同步 GitHub
+   **必須看到** `[ALL PASS] Skill v36+ installed and dependencies OK.`，否則**不要**給用戶任何結論。
+   `EXPECTED_GOTCHA_COUNT = 36` 是最低門檻；目前已驗證的實際數量為 38。若 `Found N gotchas` < 36 或 skill / 依賴檢查失敗，先停止並回報。不要把舊文件中的 21、23、30 當作目前總數。
    **這一步不需要 5 秒以外時間，不能跳過**。
 
 2. 看 [`README.md`](README.md) — 專案總覽
@@ -23,14 +73,14 @@
 5. 看 [`docs/workflow.md`](docs/workflow.md) — 完整工作流程（從 URL 到 final.mp4）
 6. 看 [`docs/recipes.md`](docs/recipes.md) — 場景食譜
 7. 看 [`docs/troubleshooting.md`](docs/troubleshooting.md) — 常見錯誤排除
-8. 看 [`CHANGELOG.md`](CHANGELOG.md) — 歷史紀錄 + 學到的 30 個 gotcha
+8. 看 [`CHANGELOG.md`](CHANGELOG.md) — 歷史紀錄；gotcha 的目前真實數量以 `install_skill.py` 輸出為準。
 
 如果用戶丟新 URL 給你：
 
 1. **立即**跑 `python scripts/install_skill.py`（**即使這對話已經跑過**, 同專案也要再跑一次 — gotcha 21)
 2. **工作目錄必須是**：`<使用者家目錄>\Documents\Hermes\Video2CRT\`（**絕對不要**放 Downloads/）
 3. 跑 `docs/workflow.md` 的 Stage 1-11
-4. 自動套用 skill `video-crt-geom-libplacebo` 的所有 gotcha（共 **23 個**：gotcha 0 pre-flight + 1-20 main + 21 MANDATORY pre-flight + 22 MANDATORY output dir)
+4. 自動套用 skill `video-crt-geom-libplacebo` 的所有 gotcha（目前 **38 條**；編號 0–31、33–38，32 號缺漏）。
 5. **顯式宣告** `Found N gotchas in SKILL.md` 證明你已驗證
 6. 跑 `python tests/run_all.py`（13 tests，應全綠）
 
@@ -69,9 +119,9 @@ skill 本體：`<使用者家目錄>\AppData\Local\hermes\skills\video-crt-geom-
 
 GitHub mirror: `https://github.com/wuzkkavin/HermesFullSetup/blob/main/skills/video-crt-geom-libplacebo/SKILL.md`
 
-最新版本：commit `695ca35`，含 30 個 gotcha。
+目前基準：本機自檢實測 **38 條 gotcha**，最低門檻為 36；編號 32 缺漏。GitHub mirror 與本段中的舊版本敘述僅供歷史追溯，不能取代本機 `install_skill.py` 的結果。
 
-### 30 個 gotcha 快速記憶
+### 現行 gotcha 快速記憶（38 條）
 
 1-6: 技術基礎（HOOK MAIN, force_original_aspect_ratio, -aspect 16:9, two-step pipeline, GPU, cropdetect）
 7-10: Whisper + 字幕基本（faster-whisper, 兩行字幕, 段間距, 跨段驗證）
@@ -236,7 +286,7 @@ MEDIA: <使用者家目錄>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 ---
 
 最後更新：2026-09-06（v0.5.0 重新組織 + MEDIA: token 規則）
-對話交接紀念：30 個 gotcha 已固化 + MEDIA: token 規則。專案結構：方案 C + MIT License。
+歷史交接紀錄：當時的 30 個 gotcha 已固化；目前總數已增至 38，請以本檔開頭的版本基準與本機自檢為準。專案結構：方案 C + MIT License。
 
 ---
 
