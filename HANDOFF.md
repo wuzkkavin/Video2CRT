@@ -29,6 +29,7 @@
 - 尚未在乾淨 Windows 使用者帳戶完成互動式安裝與 GUI 到 `final.mp4` 的完整視覺 E2E。
 - 尚未實際下載完整約 3.2 GB 高品質模型；安裝器的選擇、失敗回退與 manifest 路徑已完成結構／建置驗證。
 - YouTube、Hugging Face 與 WebView2 外部服務行為仍可能變動；不可把本輪建置通過解讀成外部服務永久可用。
+- 專案目前沒有 `docs/managed-components.md` 或 `scripts/check-codex-usage-hud.ps1`，因此本次只能記錄 maintenance 版本比對受阻；沒有執行任何元件更新。
 
 ### 下一個安全動作
 
