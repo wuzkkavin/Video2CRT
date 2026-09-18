@@ -1,5 +1,39 @@
 # Video2CRT - HANDOFF
 
+## 最終收工紀錄 — 2026-09-18 運行介面回歸修正
+
+### 本輪完成
+
+- 移除運行時的 `ModelInstallDialog`、模型選擇 IPC 與相關前端狀態；主程式不再顯示「使用標準模型」等選項。
+- 保留自攜式 runtime、標準模型與 CRT shader 路徑；安裝器以 `installer-hooks.nsh` 在檔案複製後詢問是否下載高品質模型。
+- 新增 `scripts/install-large-model.py`，由 bundled Python 將固定 revision 模型下載至使用者資料夾，完成 manifest 後才由 sidecar 靜默採用。
+- 更新發布、使用、SA/SD/UI/UX/RD/DB/API/QA 文件，明確區分「安裝時選擇」與「程式運行介面」。
+
+### 驗證
+
+- `npm run build`：通過。
+- `cargo check --manifest-path src-tauri/Cargo.toml`：通過。
+- `cargo test --manifest-path src-tauri/Cargo.toml --all-targets -- --test-threads=1`：11 個 library 測試與 1 個 integration 測試通過；binary harness 為 0 tests 但已編譯。
+- Python `py_compile`：`install-large-model.py`、`pipeline_cli.py`、`subtitle_engine.py` 通過。
+- `npm run tauri:build`：NSIS x64 安裝器建置通過；產物已複製至 `video2crt-app/dist-distributable/`。
+- 安裝器 SHA-256：`BA47C87C444C0A2E8ACE92C862F740E2421C8390B7E042B080592D86948625A0`。
+- 產物內已確認 `install-large-model.py` 與 installer hook；前端搜尋不再有模型對話框或「使用標準模型」字串。
+
+### Git 狀態
+
+- `0b508b8 fix(app): move model choice to installer` 已提交並推送至 `origin/main`。
+- 本輪只提交程式、安裝器與文件；既有輸出、歌詞、暫存編譯檔與其他未追蹤資料保持原樣。
+
+### 未驗證與風險
+
+- 尚未在乾淨 Windows 使用者帳戶完成互動式安裝與 GUI 到 `final.mp4` 的完整視覺 E2E。
+- 尚未實際下載完整約 3.2 GB 高品質模型；安裝器的選擇、失敗回退與 manifest 路徑已完成結構／建置驗證。
+- YouTube、Hugging Face 與 WebView2 外部服務行為仍可能變動；不可把本輪建置通過解讀成外部服務永久可用。
+
+### 下一個安全動作
+
+先在隔離 Windows 帳戶以 `dist-distributable/Video2CRT_0.1.0_x64-setup.exe` 測試「略過模型」與「下載模型」兩條安裝路徑，再做一次真實影片 GUI E2E；不要恢復運行時模型選擇視窗。
+
 ## 最終收工紀錄 — 2026-09-18 完全開發設計指南
 
 ### 本輪完成
