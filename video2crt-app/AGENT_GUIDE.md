@@ -5,7 +5,8 @@
 1. 先看根目錄 [HANDOFF.md](../HANDOFF.md) 最新日期段落。
 2. 看本目錄 [SPEC.md](SPEC.md) 與 [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)。
 3. 看 [RELEASE.md](RELEASE.md) 與 [TEST_ACCEPTANCE.md](TEST_ACCEPTANCE.md)。
-4. 執行 `git status --short`，把父層影片輸出與私人工作檔視為既存資料，不要自動還原或刪除。
+4. 看根目錄 [gotcha 指南](../docs/GOTCHA_GUIDE.md)，再從專案根目錄執行 `python scripts/install_skill.py`。
+5. 執行 `git status --short`，把父層影片輸出與私人工作檔視為既存資料，不要自動還原或刪除。
 
 ## 第一個安全動作
 

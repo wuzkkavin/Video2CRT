@@ -241,10 +241,14 @@ ffprobe -v error -show_streams source.mp4
 | 檢查 | 結果 | 範圍 |
 | --- | --- | --- |
 | `npm run build` | 通過 | TypeScript 與 Vite production build |
+| `python scripts/install_skill.py` | 38 條 gotcha，`[ALL PASS]` | 36 是最低新鮮度門檻，不是總數 |
+| `python tests/run_all.py` | 13 項通過 | 根目錄環境與 Whisper stage 回歸 |
 | `python -m unittest scripts/test_subtitle_contract.py -q` | 26 項通過 | 不含模型與網路的字幕契約 |
+| `cargo test --all-targets -- --test-threads=1` | 12 項通過 | 11 library unit + 1 integration |
+| 自動化測試合計 | 51 項通過 | 13 + 26 + 12；不含僅編譯的 binary harness |
 | Rust 下載回退單元測試 | 通過 | PO Token／429 才啟用 embedded fallback |
 | ANA 測試影片 embedded 下載 | 通過 | 實際下載 29.97 秒、1440×1080 AV1、含 Opus 音訊 |
-| `cargo test ... model_manager::tests` | 通過 | 模型 manifest 不完整時不標記為可用 |
+| `cargo test ... model_manager::tests` | 通過 | 模型 manifest 不完整時不標記為可用；這是窄範圍測試，不是 Rust 全部測試數 |
 | `powershell -File scripts/build-distributable.ps1` | 通過 | NSIS 安裝包產生至 `dist-distributable` |
 | silent install + 啟動 5 秒 | 通過 | installer exit 0，安裝後 `video2crt.exe` 持續執行 |
 

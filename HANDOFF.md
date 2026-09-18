@@ -1,5 +1,19 @@
 # Video2CRT - HANDOFF
 
+## 收工補充 — 2026-09-18 測試盤點修正
+
+前一版里程碑摘要中的「26 項」只指 APP Python 字幕契約測試。為避免接手者誤把它當成整個專案總數，本輪完整驗證如下：
+
+- `python scripts/install_skill.py`：通過；目前實測 **38 條 CRT skill gotcha**，最低新鮮度門檻為 36。
+- `$env:PYTHONPATH=(Resolve-Path 'src').Path; python tests/run_all.py`：**13 項通過**。
+- `$env:PYTHONPATH=(Resolve-Path '..\\src').Path; python scripts/test_subtitle_contract.py`：**26 項通過**。
+- `cargo test --manifest-path video2crt-app/src-tauri/Cargo.toml --all-targets -- --test-threads=1`：**12 項通過**（11 library unit + 1 integration）。
+- 自動化測試合計：**51 項通過**（13 + 26 + 12）。Rust binary harness 顯示 0 tests 是因為它們是可執行驗證工具，仍有編譯驗證，不應重複計入測試案例。
+- `cargo test ... model_manager::tests` 的 1 項是窄範圍抽測，不是 Rust 全部測試數。
+- gotcha 的唯一完整來源與更新規則見 [`docs/GOTCHA_GUIDE.md`](docs/GOTCHA_GUIDE.md)；各 `output/*/handoff.md` 只屬個案紀錄。
+
+後續文件已同步補上同一份測試矩陣：`video2crt-app/TEST_ACCEPTANCE.md`、`RELEASE.md`、`DEVELOPMENT_GUIDE.md` 與根目錄 `README.md`。本次修正本身只更新文件，不改變程式行為。
+
 ## 收工紀錄 — 2026-09-18
 
 ### 本輪完成
@@ -351,8 +365,11 @@ MEDIA: <使用者家目錄>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 
 - `npm run build`：通過。
 - `cargo check --manifest-path src-tauri/Cargo.toml`：通過（既有 warnings）。
-- `cargo test ... model_manager::tests`：通過，1 項。
+- `python scripts/install_skill.py`：通過，實測 38 條 gotcha，`[ALL PASS]`。
+- `python tests/run_all.py`：13 項通過。
 - `python scripts/test_subtitle_contract.py`（搭配 repo `src`）：26 項通過。
+- `cargo test --all-targets -- --test-threads=1`：12 項通過（11 library unit + 1 integration）。
+- 自動化測試合計：51 項通過；`model_manager::tests` 的 1 項只是窄範圍抽測。
 - `powershell -File scripts/build-distributable.ps1`：通過，NSIS 產物存在。
 - silent install：exit 0；安裝後 `video2crt.exe` 啟動並持續執行超過 5 秒。
 - 尚未驗證：乾淨 Windows 使用者帳戶、完整 GUI 到 `final.mp4` 視覺 E2E、實際下載完整約 3.2 GB 高品質模型。
@@ -363,7 +380,7 @@ MEDIA: <使用者家目錄>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 - 本輪只應提交 APP 原始碼、發布腳本、文件與 lockfile；父層影片輸出、原始影音、日誌、模型快取與暫存檔不得提交。
 - `origin` 目前由 GitHub 回報為公開 repository；本輪不可新增私密路徑、憑證或使用者資料。若日後要求私有化，需另行明確處理 repository visibility。
 - commit/push 由老吳在本輪訊息中明確授權；完成後要再次比較本機 `HEAD` 與 `origin/main`。
-- 本輪發布 commit：`54e8055`，已推送至 `origin/main`；推送後本機與遠端 SHA 相同。
+- 本輪發布 commit：`54e8055`，文件補充 commit：`270cd46`；兩者均已推送至 `origin/main`，目前本機與遠端 SHA 為 `270cd46e849a9efb285b4acc142be0d8f8efd67e`。
 
 ## 下一個 agent 的安全起手式
 

@@ -37,8 +37,10 @@ npm run tauri:build:distributable
 
 ## 發布前核對
 
-1. 執行 `npm run build`、`cargo check`、`cargo test`。
-2. 執行字幕契約測試，確認 26 項通過。
-3. 執行發布腳本並確認安裝包存在、大小合理、SHA-256 已記錄。
-4. 在隔離資料夾 silent install，確認 `video2crt.exe`、embedded Python、ffmpeg、yt-dlp 與標準模型存在。
-5. 不把 API Key、Cookie、影片、模型快取或本機日誌加入 commit。
+1. 執行 `python scripts/install_skill.py`，確認輸出 38 條 gotcha 且 `[ALL PASS]`；36 是最低門檻，不是總數。
+2. 執行根目錄回歸測試：`$env:PYTHONPATH=(Resolve-Path 'src').Path; python tests/run_all.py`，確認 13 項通過。
+3. 執行 `$env:PYTHONPATH=(Resolve-Path '..\\src').Path; python scripts/test_subtitle_contract.py`，確認 26 項通過。
+4. 執行 `cargo check --manifest-path src-tauri/Cargo.toml`，再執行 `cargo test --manifest-path src-tauri/Cargo.toml --all-targets -- --test-threads=1`，確認 12 項通過。
+5. 執行 `npm run build`、發布腳本，確認安裝包存在、大小合理、SHA-256 已記錄。
+6. 在隔離資料夾 silent install，確認 `video2crt.exe`、embedded Python、ffmpeg、yt-dlp 與標準模型存在。
+7. 不把 API Key、Cookie、影片、模型快取或本機日誌加入 commit。

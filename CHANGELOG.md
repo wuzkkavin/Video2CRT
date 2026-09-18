@@ -111,4 +111,5 @@
 - 完成 Tauri 2 Windows x64 self-contained NSIS 安裝包，內含 Python、ffmpeg、Node.js、yt-dlp、WebView2 與標準模型。
 - 新增高品質模型確認式安裝：下載進度、取消、`.part` 暫存、SHA-256 manifest 與完整模型切換。
 - 補齊 APP 規格、使用者手冊、開發維護、測試驗收、發布說明與 Agent 接手文件。
+- 補齊 gotcha 單一來源索引與完整測試矩陣：13 項根目錄回歸、26 項字幕契約、12 項 Rust 測試，共 51 項；目前 skill 實測 38 條 gotcha。
 - 安裝包已完成本機 silent install 與啟動冒煙驗證；完整影片 GUI E2E 與高品質模型實際下載仍列為後續驗證。
