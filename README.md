@@ -9,7 +9,7 @@
 
 ## Windows 桌面 APP 里程碑（2026-09-18）
 
-`video2crt-app/` 已完成 Tauri 2 Windows x64 發布包。使用者不需另外安裝 Python、ffmpeg、Node.js、yt-dlp 或標準模型；高品質模型會在字幕工作開始前由使用者確認後下載。
+`video2crt-app/` 已完成 Tauri 2 Windows x64 發布包。使用者不需另外安裝 Python、ffmpeg、Node.js、yt-dlp 或標準模型；高品質模型只在安裝程序中由使用者確認是否下載，程式運行介面不會顯示模型選擇。
 
 - [APP 使用者手冊](video2crt-app/USER_GUIDE.md)
 - [APP 開發維護手冊](video2crt-app/DEVELOPMENT_GUIDE.md)

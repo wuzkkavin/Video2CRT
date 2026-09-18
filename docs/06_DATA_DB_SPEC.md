@@ -15,7 +15,7 @@ Video2CRT 0.1.0 是本機桌面工具，沒有 PostgreSQL、SQLite、雲端資�
 | 資料 | 儲存位置 | 內容／生命週期 |
 | --- | --- | --- |
 | API Key | Windows Credential Manager | service `Video2CRT`；UI 只讀已設定狀態 |
-| 模型快取 | `%LOCALAPPDATA%\Video2CRT\models\large` | `.part` 完成 hash 與 manifest 後才啟用 |
+| 模型快取 | `%LOCALAPPDATA%\Video2CRT\models\large` | 安裝器下載完成 hash 與 manifest 後才啟用 |
 | 工作輸出 | 桌面或使用者選取父資料夾 | source、raw、SRT、metadata、final；同名加序號 |
 | runtime | 安裝目錄 | 內嵌 Python、ffmpeg、yt-dlp、標準模型，不作使用者資料庫 |
 | 暫存檔 | 工作輸出或 `.packaging` | 只供該次流程與建置，禁止進 Git |

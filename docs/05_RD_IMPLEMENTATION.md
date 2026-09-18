@@ -12,7 +12,7 @@
 - 對 PO Token／Visitor Data／429 只做一次 embedded client 回退，避免擴大登入或 Cookie 邊界。
 - 以 cropdetect 提供影片專屬提示，保留手動 crop 覆寫，避免全域裁切破壞其他片源。
 - 以 Python sidecar 實作 ASR、字幕語言／時間完整性判斷、OpenCC、翻譯清理與 burn guard。
-- 以 `.part`、固定 revision、SHA-256 manifest 實作可取消的高品質模型安裝。
+- 以 NSIS installer hook 呼叫 bundled Python、固定 revision、SHA-256 manifest 實作安裝時高品質模型安裝。
 - 以 Credential Manager 儲存雲端翻譯 Key，避免設定檔與 log 洩漏。
 
 ## 實作順序

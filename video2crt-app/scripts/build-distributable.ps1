@@ -121,6 +121,7 @@ Copy-DirectoryContents (Join-Path $ffmpegBin.FullName "bin") $ToolsRoot
 
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "src-tauri/bin/pipeline_cli.py") -Destination $AppRoot -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "src-tauri/bin/subtitle_engine.py") -Destination $AppRoot -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot "scripts/install-large-model.py") -Destination $AppRoot -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot "src-tauri/bin/vendor") -Destination $AppRoot -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $RepoRoot "src") -Destination $AppRoot -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $RepoRoot "lyrics_translations.json") -Destination $AppRoot -Force
@@ -145,6 +146,7 @@ $required = @(
     (Join-Path $ToolsRoot "ffprobe.exe"),
     (Join-Path $AppRoot "pipeline_cli.py"),
     (Join-Path $AppRoot "subtitle_engine.py"),
+    (Join-Path $AppRoot "install-large-model.py"),
     (Join-Path $AppRoot "src/video2crt/asr.py"),
     (Join-Path $AppRoot "src/video2crt/subtitle.py"),
     (Join-Path $AppRoot "vendor/opencc/config/t2tw.json")

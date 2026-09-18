@@ -15,6 +15,6 @@ npm run tauri:build:distributable
 
 ## 高品質模型
 
-第一次開始字幕轉檔時，如果尚未安裝高品質模型，應用程式會先顯示選擇畫面。使用者可以直接使用內建標準模型，或確認下載約 3.2 GB 的 pinned Whisper large-v3-turbo 與 m2m100 1.2B 模型。下載會寫入目前 Windows 使用者的 `%LOCALAPPDATA%\Video2CRT\models\large`，以暫存檔完成下載、計算 SHA-256 並寫入 manifest 後才啟用；取消或失敗不會覆蓋內建模型。
+模型選擇只在 NSIS 安裝程序中出現。安裝檔複製完成後會詢問是否下載約 3.2 GB 的 pinned Whisper large-v3-turbo 與 m2m100 1.2B 模型；選「否」就只保留內建標準模型。高品質模型會寫入 `%LOCALAPPDATA%\Video2CRT\models\large`，以 manifest 驗證完成後才會被程式採用。
 
-高品質模型是可選的，因為把它與主安裝包合併會超過目前 NSIS 單檔大小限制。若要完全離線部署高品質模型，應另行提供模型包並在離線環境匯入。
+程式運行介面不會顯示模型選擇視窗，也不會在開始轉檔時臨時改變模型。若安裝時下載失敗，仍可直接使用內建標準模型，之後重新執行安裝程式即可重試。

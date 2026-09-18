@@ -682,6 +682,9 @@ async fn run_sidecar(
         let tools = root.join("tools");
         let python_dir = tools.join("python");
         let app_dir = root.join("app");
+        // The installer may have placed a validated high-quality model under
+        // the user data directory. The running app reads that state silently;
+        // model selection itself belongs to the installer UI.
         let asr_model_dir = crate::model_manager::installed_model_dir("asr")
             .unwrap_or_else(|| root.join("models/asr"));
         let translation_model_dir = crate::model_manager::installed_model_dir("translation")

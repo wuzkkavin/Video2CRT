@@ -30,7 +30,7 @@
 | REQ-003 | 建立以影片標題命名且不覆寫的輸出資料夾 | Rust orchestrator 測試 |
 | REQ-004 | 下載、裁切、CRT、ASR、翻譯、燒錄、封裝有可見進度與錯誤 | `ProgressPage`、Tauri events |
 | REQ-005 | 原文、原文＋繁中、無字幕三種模式行為固定 | 字幕契約 26 項 |
-| REQ-006 | 高品質模型缺少時先取得使用者確認，可改用標準模型或稍後 | `ModelInstallDialog`、模型管理測試 |
+| REQ-006 | 安裝程序先取得高品質模型下載確認；略過後使用標準模型 | `installer-hooks.nsh`、`install-large-model.py`、模型管理測試 |
 | REQ-007 | 翻譯未完成時不得燒錄不完整雙語成品 | 字幕契約與 pipeline guard |
 | REQ-008 | API Key 只存 Windows Credential Manager，不落地到檔案或 log | `settings.rs` 與安全文件 |
 | REQ-009 | `final.mp4` 保留視訊與原始音訊，字幕時間不倒退、不重疊 | ffprobe、字幕契約與 E2E 檢查 |

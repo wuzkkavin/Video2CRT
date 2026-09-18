@@ -191,7 +191,6 @@ pub fn run() {
             // being passed one (rare) can still reach it.
             app.manage(orchestrator::JobRegistry::default());
             app.manage(orchestrator::AsrGate::default());
-            app.manage(model_manager::InstallState::default());
             // Fire one startup event so the React side can do "is api key set"
             // without an explicit call.
             let _ = app.emit("pipeline://ready", ());
@@ -205,9 +204,6 @@ pub fn run() {
             save_api_key,
             delete_api_key,
             list_translation_models,
-            model_manager::get_large_model_status,
-            model_manager::install_large_model,
-            model_manager::cancel_large_model_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Video2CRT app");

@@ -7,10 +7,10 @@ Video2CRT 是一個 Windows 桌面應用程式：貼上 YouTube URL，選擇字�
 1. 執行發布包 `dist-distributable/Video2CRT_0.1.0_x64-setup.exe`。
 2. 安裝後開啟 Video2CRT，貼上公開 YouTube URL。
 3. 選擇字幕模式與輸出資料夾，按「開始轉檔」。
-4. 若尚未安裝高品質模型，選擇「安裝高品質模型」或直接使用內建標準模型。
+4. 安裝時若出現高品質模型選擇，可選擇下載或略過；程式運行時不會再顯示模型選擇。
 5. 完成頁開啟輸出資料夾，確認 `final.mp4` 與 `zh-Hant.srt`。
 
-主安裝包已包含 Python、ffmpeg、Node.js、yt-dlp、WebView2 與可離線執行的標準模型；使用者不必先在系統安裝這些工具。高品質模型是選配，需在應用程式內確認後下載。
+主安裝包已包含 Python、ffmpeg、Node.js、yt-dlp、WebView2 與可離線執行的標準模型；使用者不必先在系統安裝這些工具。高品質模型是選配，只在安裝程序中確認是否下載。
 
 ## 文件入口
 

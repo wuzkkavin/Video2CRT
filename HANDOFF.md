@@ -378,12 +378,12 @@ MEDIA: <使用者家目錄>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 - APP 版本：`0.1.0`，Windows x64，Tauri 2 + React/Vite + Rust/Tokio + Python sidecar。
 - 正式安裝包：`video2crt-app/dist-distributable/Video2CRT_0.1.0_x64-setup.exe`。
 - 安裝包已包含 Python 3.12 embeddable、ffmpeg、Node.js、官方 yt-dlp、離線 WebView2、OpenCC 與標準 ASR／翻譯模型。
-- 高品質模型不是靜默下載：字幕工作開始且模型缺少時，UI 顯示安裝／標準模型／稍後選項；確認後下載到使用者資料夾，完成 manifest 後才切換。
+- 高品質模型不是靜默下載：NSIS 安裝程序顯示下載／略過選項；確認後由 bundled Python 下載到使用者資料夾，完成 manifest 後才切換。主程式運行介面不顯示模型選擇。
 - 發布包 SHA-256（2026-09-18）：`96AAEF70137210371A2E471727F7E4FDE9CECE3DA02B0047A5228265B8B66232`。
 
 ## 本輪變更與權威文件
 
-- 模型管理：`video2crt-app/src-tauri/src/model_manager.rs`、`video2crt-app/src/components/ModelInstallDialog.tsx`。
+- 模型管理：`video2crt-app/src-tauri/installer-hooks.nsh`、`video2crt-app/scripts/install-large-model.py`、`video2crt-app/src-tauri/src/model_manager.rs`；`ModelInstallDialog.tsx` 已移除。
 - Tauri command、runtime 資源與模型路徑：`video2crt-app/src-tauri/src/lib.rs`、`orchestrator.rs`。
 - 發布腳本與 runtime staging：`video2crt-app/scripts/build-distributable.ps1`、`stage-models.py`。
 - 文件入口：`video2crt-app/README.md`、`SPEC.md`、`USER_GUIDE.md`、`DEVELOPMENT_GUIDE.md`、`TEST_ACCEPTANCE.md`、`RELEASE.md`、`AGENT_GUIDE.md`。

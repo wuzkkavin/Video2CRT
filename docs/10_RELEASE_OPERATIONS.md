@@ -16,7 +16,7 @@
 
 ## 發布核對
 
-先跑 gotcha／依賴、根目錄 13 項、字幕 26 項、Rust 12 項、前端 build，再執行發布腳本。安裝後確認 `video2crt.exe`、embedded Python、ffmpeg、yt-dlp、標準模型存在。silent install 已通過；乾淨帳戶與完整 GUI E2E 仍未驗證。
+先跑 gotcha／依賴、根目錄 13 項、字幕 26 項、Rust 12 項、前端 build，再執行發布腳本。安裝後確認 `video2crt.exe`、embedded Python、ffmpeg、yt-dlp、標準模型存在，並確認模型選擇只出現在 NSIS 安裝程序。silent install 已通過；乾淨帳戶與完整 GUI E2E 仍未驗證。
 
 ## 回退與維運
 

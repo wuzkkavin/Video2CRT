@@ -13,7 +13,7 @@
 | YouTube oEmbed | 取得公開影片標題 | 公開 URL；不使用 Cookie | 失敗即停止，不改用 ID 命名 |
 | yt-dlp | 下載公開影音／字幕 | 公開網路請求；不自動登入 | 只對明確 access gate 回退 embedded 一次 |
 | ffmpeg／ffprobe | 影音、crop、CRT、字幕、封裝 | 本機執行 | 非零退出保留錯誤，不偽造完成 |
-| Hugging Face | 高品質模型檔案 | 固定 repo/revision，使用者確認後下載 | `.part`、hash、manifest；取消維持標準模型 |
+| Hugging Face | 高品質模型檔案 | 固定 repo/revision，安裝程序確認後下載 | manifest；失敗維持標準模型 |
 | MiniMax | 選用雲端翻譯 | 使用者主動選擇且已保存 Key 才送字幕文字 | 本機優先失敗才 fallback；不傳影片 |
 | Tauri IPC | UI 與 Rust 協調器 | 本機 command/event | 進度、取消、錯誤與結果需有明確狀態 |
 

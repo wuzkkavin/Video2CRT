@@ -26,9 +26,9 @@ Get-Content video2crt-app/src-tauri/Cargo.toml
 
 - Tauri 2 + React/Vite UI 入口是 `src/App.tsx`。
 - Rust command 與 runtime 資源解析在 `src-tauri/src/lib.rs`、`orchestrator.rs`。
-- 可選模型安裝在 `src-tauri/src/model_manager.rs`；前端視窗是 `src/components/ModelInstallDialog.tsx`。
+- 可選模型安裝在 `src-tauri/installer-hooks.nsh` 與 `scripts/install-large-model.py`；運行中的前端不得加入模型選擇視窗。`src-tauri/src/model_manager.rs` 只負責驗證安裝器寫入的 manifest。
 - 正式 runtime 由 `scripts/build-distributable.ps1` 產生；模型 stage 設定在 `scripts/stage-models.py`。
-- 標準模型內建；高品質模型只有在使用者明確確認後才下載。
+- 標準模型內建；高品質模型只有在 NSIS 安裝程序中使用者明確確認後才下載。
 
 ## 變更矩陣
 

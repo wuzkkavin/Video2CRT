@@ -15,7 +15,7 @@
 | NSIS 安裝包 | `dist-distributable/Video2CRT_0.1.0_x64-setup.exe` | 已產生並完成安裝冒煙測試 |
 | SHA-256 | `96AAEF70137210371A2E471727F7E4FDE9CECE3DA02B0047A5228265B8B66232` | 當輪已計算 |
 
-主包包含 Python 3.12 embeddable runtime、faster-whisper/CTranslate2/SentencePiece/Hugging Face Hub、ffmpeg、Node.js、官方 yt-dlp、OpenCC、標準 ASR／翻譯模型與應用程式資源。高品質模型不放入主包，改由應用程式內確認後下載。
+主包包含 Python 3.12 embeddable runtime、faster-whisper/CTranslate2/SentencePiece/Hugging Face Hub、ffmpeg、Node.js、官方 yt-dlp、OpenCC、標準 ASR／翻譯模型與應用程式資源。高品質模型不放入主包，改由 NSIS 安裝時確認後下載。
 
 ## 建置
 
@@ -33,7 +33,7 @@ npm run tauri:build:distributable
 - 原始碼與建置腳本已進 Git，可重建發布包。
 - `.packaging/`、`dist-distributable/`、Tauri target 與模型快取不進 Git。
 - 下載資源包含固定版本或 revision；正式交付前應重新計算 hash。
-- 本輪已驗證安裝程式 exit code 0，安裝後主程式成功啟動；尚未在乾淨 Windows 使用者帳戶執行完整影片 GUI E2E，也尚未實際下載完整 3.2 GB 高品質模型。
+- 本輪已驗證 NSIS 建置 exit code 0；尚未在乾淨 Windows 使用者帳戶執行完整影片 GUI E2E，也尚未實際下載完整 3.2 GB 高品質模型。
 
 ## 發布前核對
 
