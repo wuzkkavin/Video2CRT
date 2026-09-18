@@ -1,5 +1,24 @@
 # Video2CRT - HANDOFF
 
+## 最終收工紀錄 — 2026-09-18 完全開發設計指南
+
+### 本輪完成
+
+- 建立全域 skill **完全開發設計指南**，machine id 為 `complete-development-design-guide`；一次涵蓋需求、SA、SD、UI/UX、RD、資料／DB、API、QA、資安、發布、決策與交接文件。
+- 為 Video2CRT 建立 12 份角色化 Markdown 文件與總索引 `docs/PROJECT_DOCUMENTATION_INDEX.md`；DB 不適用性已明確記錄，沒有用空白文件掩蓋缺口。
+- skill `quick_validate.py` 已通過；scaffold helper 已完成 Python 編譯檢查，文件相對連結、placeholder 與 staged 敏感資料掃描已通過。
+
+### Git 與同步
+
+- 文件提交：`e6bc960`；Handoff 補充提交：`9202dda`。
+- 本機 `HEAD` 與 `origin/main` 已確認一致。
+- 最新交接已同步到 Obsidian 與 NotebookLM；後續開發先讀 `docs/PROJECT_DOCUMENTATION_INDEX.md`。
+
+### 未完成與風險
+
+- 完整 GUI 到 `final.mp4` 的乾淨 Windows 視覺 E2E 與完整高品質模型下載仍未驗證。
+- 工作樹中原有的影片輸出、翻譯資料、暫存編譯檔與其他未納入里程碑的檔案保持原樣，未刪除、還原或提交。
+
 ## 開發文件套件 — 2026-09-18
 
 本專案已建立完整 Markdown 開發設計文件入口：[docs/PROJECT_DOCUMENTATION_INDEX.md](docs/PROJECT_DOCUMENTATION_INDEX.md)。它一次涵蓋需求、SA、SD、UI/UX、RD、資料／DB、API、測試 QA、資安、發布維運、決策追蹤與 Agent 接手；目前版本沒有伺服器 DB，已在 DB 文件明確記錄為不適用，而不是省略。
