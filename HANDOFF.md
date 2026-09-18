@@ -363,6 +363,7 @@ MEDIA: <使用者家目錄>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 - 本輪只應提交 APP 原始碼、發布腳本、文件與 lockfile；父層影片輸出、原始影音、日誌、模型快取與暫存檔不得提交。
 - `origin` 目前由 GitHub 回報為公開 repository；本輪不可新增私密路徑、憑證或使用者資料。若日後要求私有化，需另行明確處理 repository visibility。
 - commit/push 由老吳在本輪訊息中明確授權；完成後要再次比較本機 `HEAD` 與 `origin/main`。
+- 本輪發布 commit：`54e8055`，已推送至 `origin/main`；推送後本機與遠端 SHA 相同。
 
 ## 下一個 agent 的安全起手式
 
