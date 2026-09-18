@@ -6,6 +6,8 @@
 
 新開發者先讀文件索引、`SPEC.md`、`DEVELOPMENT_GUIDE.md` 與本檔最新段落，再依改動範圍執行驗證。未來接收一份新的開發規格時，使用全域 skill **完全開發設計指南**（machine id：`complete-development-design-guide`）一次建立或更新整套 Markdown 文件；不要只新增單一需求檔而遺漏設計、測試、資安或發布契約。
 
+本輪文件套件已提交為 `e6bc960 docs: add complete development design set`；推送後應再次確認本機 `HEAD` 與 `origin/main` 相同。
+
 ## 收工補充 — 2026-09-18 測試盤點修正
 
 前一版里程碑摘要中的「26 項」只指 APP Python 字幕契約測試。為避免接手者誤把它當成整個專案總數，本輪完整驗證如下：
