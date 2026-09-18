@@ -7,6 +7,18 @@
 
 把 YouTube 影片**轉成傳統 CRT 電視畫面** + **燒上雙語字幕**（原文 + 繁體中文）的工具專案。
 
+## Windows 桌面 APP 里程碑（2026-09-18）
+
+`video2crt-app/` 已完成 Tauri 2 Windows x64 發布包。使用者不需另外安裝 Python、ffmpeg、Node.js、yt-dlp 或標準模型；高品質模型會在字幕工作開始前由使用者確認後下載。
+
+- [APP 使用者手冊](video2crt-app/USER_GUIDE.md)
+- [APP 開發維護手冊](video2crt-app/DEVELOPMENT_GUIDE.md)
+- [APP 規格基準](video2crt-app/SPEC.md)
+- [APP 發布說明](video2crt-app/RELEASE.md)
+- [APP 測試與驗收](video2crt-app/TEST_ACCEPTANCE.md)
+- [APP Agent 接手指南](video2crt-app/AGENT_GUIDE.md)
+- [最新交接紀錄](HANDOFF.md)
+
 ## 用途
 
 丟一個 YouTube 連結 → 自動產生一隻帶 CRT 效果（RGB phosphor dotmask + scanlines）跟中英/中日對照字幕的 1920×1080 MP4。

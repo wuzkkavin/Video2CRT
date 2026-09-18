@@ -106,3 +106,9 @@
 - **archive/** 不完整的（3 支）
 
 詳細結構見 `docs/architecture.md`。
+## 2026-09-18 — Video2CRT Windows App 0.1.0 發布里程碑
+
+- 完成 Tauri 2 Windows x64 self-contained NSIS 安裝包，內含 Python、ffmpeg、Node.js、yt-dlp、WebView2 與標準模型。
+- 新增高品質模型確認式安裝：下載進度、取消、`.part` 暫存、SHA-256 manifest 與完整模型切換。
+- 補齊 APP 規格、使用者手冊、開發維護、測試驗收、發布說明與 Agent 接手文件。
+- 安裝包已完成本機 silent install 與啟動冒煙驗證；完整影片 GUI E2E 與高品質模型實際下載仍列為後續驗證。

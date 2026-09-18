@@ -34,6 +34,7 @@ Video2CRT 將一支公開 YouTube 影片轉成帶有 CRT 顯像效果的 MP4。�
 | 字幕處理 | Python | `src-tauri/bin/pipeline_cli.py` | ASR、字幕來源選擇、SRT、字幕燒錄與封裝 |
 | 字幕規則 | Python | `src-tauri/bin/subtitle_engine.py` | 時間軸正規化、YouTube VTT/SRT、繁簡轉換、本機翻譯 |
 | 雲端翻譯 | Rust | `src-tauri/src/translator.rs` | MiniMax 模型清單與文字翻譯 |
+| 高品質模型安裝 | Rust + React | `src-tauri/src/model_manager.rs`、`src/components/ModelInstallDialog.tsx` | 使用者確認後下載、進度、取消與 manifest 完整性檢查 |
 | 金鑰儲存 | Windows Credential Manager | `src-tauri/src/settings.rs` | 只保存、讀取與刪除 API Key；UI 不讀回 key 內容 |
 | CRT shader | GLSL | `scripts/crt.glsl` | libplacebo 顯像效果 |
 | 回歸測試 | Python / Rust | `scripts/test_subtitle_contract.py`、`src-tauri/src/orchestrator.rs` | 保護字幕與下載回退契約 |
@@ -45,6 +46,8 @@ Video2CRT 將一支公開 YouTube 影片轉成帶有 CRT 顯像效果的 MP4。�
 3. 按「開始轉檔」。UI 立刻鎖定開始按鈕，避免同一輸出資料夾同時執行兩條流程。
 4. 進度頁依序顯示：下載、裁切偵測、CRT 渲染、ASR、字幕翻譯、字幕燒錄、封裝。
 5. 完成頁提供輸出資料夾、`final.mp4`、`zh-Hant.srt` 與在 Explorer 開啟按鈕。
+
+若字幕功能需要而高品質模型尚未安裝，開始轉檔前會先顯示模型確認視窗。選擇標準模型會直接繼續，選擇安裝則下載約 3.2 GB；無字幕模式不會觸發此提示。
 
 ### 選項說明
 
@@ -103,7 +106,7 @@ CRT 渲染會：
 
 ### 4.4 ASR 與原文字幕選擇
 
-Python sidecar 先將 `source.mp4` 萃取為 16 kHz 單聲道 WAV，然後使用本機 `faster-whisper-large-v3-turbo`。第一次使用模型時，程式可能從 Hugging Face 下載已釘選版本的模型資料；影片音訊不會上傳。
+Python sidecar 先將 `source.mp4` 萃取為 16 kHz 單聲道 WAV，然後使用安裝包內的標準 faster-whisper 模型。若使用者已確認並完成高品質模型安裝，Rust sidecar 環境會優先指向 `%LOCALAPPDATA%\Video2CRT\models\large` 的 pinned `faster-whisper-large-v3-turbo`；影片音訊不會上傳。
 
 Whisper 的 word timestamps 若觸發已知 NumPy 對齊錯誤，ASR 會改以不帶 word timestamps 的模式重試，而不是中止整支影片。
 
@@ -120,7 +123,7 @@ Whisper 的 word timestamps 若觸發已知 NumPy 對齊錯誤，ASR 會改以�
 
 - 中文原文以本機 OpenCC 轉為繁體，輸出一行，不會再加上重複翻譯行。
 - 非中文原文在雙語模式輸出兩行：原文在第一行、繁中在第二行。
-- 本機翻譯使用已釘選的 M2M100 CTranslate2 模型。第一次下載的是模型資料，不含使用者影片或字幕上傳。
+- 本機翻譯使用安裝包內已釘選的 M2M100 CTranslate2 標準模型；完成高品質模型安裝後才切換到 pinned 1.2B 模型。下載的是模型資料，不含使用者影片或字幕上傳。
 - 若採用 `cloudFallback`，本機翻譯失敗時才逐段呼叫 MiniMax；`cloud` 模式直接呼叫 MiniMax。
 - MiniMax 回覆會移除 `<think>...</think>`、多餘標籤與格式字元，防止模型內部推理文字進入影片。
 - 未完成必要翻譯時，流程在燒錄前失敗；不應輸出混雜錯誤說明或不完整雙語的 `final.mp4`。
@@ -199,7 +202,7 @@ Set-Location ..
 python -m unittest scripts/test_subtitle_contract.py -q
 ```
 
-目前 release 可執行檔通常位於 `src-tauri\target\release\video2crt.exe`。Tauri 設定的 bundle target 為每使用者安裝的 NSIS；但依賴自動準備與乾淨電腦安裝尚未完成完整驗證，因此不可將目前狀態宣稱為可直接散佈的成品安裝程式。
+目前正式發布包位於 `dist-distributable\Video2CRT_0.1.0_x64-setup.exe`；Tauri 設定的 bundle target 為每使用者安裝的 NSIS，並已完成本機 silent install 冒煙驗證。乾淨 Windows 使用者帳戶與完整影片 GUI E2E 仍未在本輪驗證，不可把這兩項寫成已完成。
 
 ## 8. 測試與驗收流程
 
@@ -241,6 +244,9 @@ ffprobe -v error -show_streams source.mp4
 | `python -m unittest scripts/test_subtitle_contract.py -q` | 26 項通過 | 不含模型與網路的字幕契約 |
 | Rust 下載回退單元測試 | 通過 | PO Token／429 才啟用 embedded fallback |
 | ANA 測試影片 embedded 下載 | 通過 | 實際下載 29.97 秒、1440×1080 AV1、含 Opus 音訊 |
+| `cargo test ... model_manager::tests` | 通過 | 模型 manifest 不完整時不標記為可用 |
+| `powershell -File scripts/build-distributable.ps1` | 通過 | NSIS 安裝包產生至 `dist-distributable` |
+| silent install + 啟動 5 秒 | 通過 | installer exit 0，安裝後 `video2crt.exe` 持續執行 |
 
 尚未在本輪重新完成 GUI 啟動到 `final.mp4` 的整條端到端視覺驗收。因此，下載回退已驗證，完整成品流程仍應在新的隔離資料夾完成一次 E2E 後，才可標記為全流程通過。
 
@@ -286,6 +292,6 @@ ffprobe -v error -show_streams source.mp4
 
 ## 12. 現況與下一步
 
-目前主功能、字幕模式、翻譯模式、Credential Manager 儲存、標題輸出資料夾與下載回退皆已實作。已知仍需完成的工作是：用乾淨 Windows 使用者帳戶驗證依賴自動準備與 NSIS 安裝流程，並在最新程式碼上完成一次 GUI 到 `final.mp4` 的完整視覺 E2E。
+目前主功能、字幕模式、翻譯模式、Credential Manager 儲存、標題輸出資料夾、下載回退、self-contained NSIS 發布包與高品質模型確認式安裝皆已實作。已知仍需完成的工作是：用乾淨 Windows 使用者帳戶驗證安裝流程、實際下載高品質模型，以及在最新程式碼上完成一次 GUI 到 `final.mp4` 的完整視覺 E2E。
 
 接手者應先閱讀本手冊，再檢查 `git status`、`src-tauri/src/orchestrator.rs`、`src-tauri/bin/pipeline_cli.py` 與 `scripts/test_subtitle_contract.py`。不要以舊輸出資料夾或舊 handoff 的結果取代當前程式碼的驗證。

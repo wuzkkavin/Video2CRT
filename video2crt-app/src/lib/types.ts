@@ -101,6 +101,25 @@ export interface ModelInfo {
   isDefault: boolean;
 }
 
+/** Status of the optional high-quality local model bundle. */
+export interface LargeModelStatus {
+  available: boolean;
+  asrReady: boolean;
+  translationReady: boolean;
+  estimatedBytes: number;
+  installedBytes: number;
+}
+
+/** Progress emitted while the optional model bundle is downloading. */
+export interface ModelInstallProgress {
+  stage: "asr" | "translation" | "complete";
+  file: string;
+  progress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  message: string;
+}
+
 // ---------- UI state ----------
 
 /** The four top-level page states the App cycles through. */

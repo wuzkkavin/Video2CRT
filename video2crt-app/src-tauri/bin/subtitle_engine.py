@@ -345,8 +345,11 @@ class LocalTranslator:
         from huggingface_hub import snapshot_download
         options = dict(repo_id=MODEL_REPO, revision=MODEL_REVISION,
                        allow_patterns=MODEL_FILES, token=False)
+        bundled = os.environ.get("VIDEO2CRT_TRANSLATION_MODEL_DIR", "").strip()
+        folder = bundled if bundled and all((Path(bundled) / name).is_file() for name in MODEL_FILES) else None
         try:
-            folder = snapshot_download(**options, local_files_only=True)
+            if folder is None:
+                folder = snapshot_download(**options, local_files_only=True)
             if not all((Path(folder) / name).is_file() for name in MODEL_FILES):
                 raise FileNotFoundError("incomplete model cache")
         except Exception:

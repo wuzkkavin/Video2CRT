@@ -25,18 +25,25 @@ import { OptionsPage } from "./pages/OptionsPage";
 import { ProgressPage } from "./pages/ProgressPage";
 import { UrlPage } from "./pages/UrlPage";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { ModelInstallDialog } from "./components/ModelInstallDialog";
 import {
   cancelJob,
+  cancelLargeModelInstall,
+  getLargeModelStatus,
+  installLargeModel,
   onDone,
   onError,
+  onModelProgress,
   onProgress,
   onReady,
   startJob,
 } from "./lib/tauri";
 import type {
   DoneEvent,
+  LargeModelStatus,
   JobOptions,
   LogEntry,
+  ModelInstallProgress,
   PageState,
   PipelineStage,
 } from "./lib/types";
@@ -207,6 +214,11 @@ function reducer(state: AppState, action: Action): AppState {
 export function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [modelPrompt, setModelPrompt] = useState<{ options: JobOptions; status: LargeModelStatus } | null>(null);
+  const [modelProgress, setModelProgress] = useState<ModelInstallProgress | null>(null);
+  const [modelInstallBusy, setModelInstallBusy] = useState(false);
+  const [modelInstallError, setModelInstallError] = useState<string | null>(null);
+  const modelPromptDismissedRef = useRef(false);
 
   // Refs for the listeners so we can unregister cleanly.
   const stateRef = useRef(state);
@@ -253,6 +265,12 @@ export function App() {
       }),
     );
 
+    unlistens.push(
+      onModelProgress((p) => {
+        setModelProgress(p);
+      }),
+    );
+
     return () => {
       void Promise.all(unlistens).then((fns) => fns.forEach((fn) => fn()));
     };
@@ -264,11 +282,9 @@ export function App() {
     dispatch({ type: "GO", page: "options" });
   }, []);
 
-  const handleOptionsStart = useCallback(
-    async (opts: JobOptions) => {
-      dispatch({ type: "SET_OPTIONS", options: opts });
-      jobStartRef.current = Date.now();
-      try {
+  const startJobWithOptions = useCallback(async (opts: JobOptions) => {
+    jobStartRef.current = Date.now();
+    try {
         const handle = await startJob({
           url: stateRef.current.url,
           crop: opts.crop,
@@ -287,12 +303,70 @@ export function App() {
         });
         const title = handle.outputDir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "未命名影片";
         dispatch({ type: "JOB_STARTED", videoId: handle.videoId, videoTitle: title });
+    } catch (e: unknown) {
+      dispatch({ type: "ERROR", message: errString(e) });
+    }
+  }, []);
+
+  const handleOptionsStart = useCallback(
+    async (opts: JobOptions) => {
+      if (modelPrompt) return;
+      dispatch({ type: "SET_OPTIONS", options: opts });
+      try {
+        const status = await getLargeModelStatus();
+        if (!status.available && opts.subtitleMode !== "none" && !modelPromptDismissedRef.current) {
+          setModelInstallError(null);
+          setModelProgress(null);
+          setModelPrompt({ options: opts, status });
+          return;
+        }
+        await startJobWithOptions(opts);
       } catch (e: unknown) {
         dispatch({ type: "ERROR", message: errString(e) });
       }
     },
-    [],
+    [modelPrompt, startJobWithOptions],
   );
+
+  const handleUseStandardModel = useCallback(async () => {
+    const pending = modelPrompt;
+    if (!pending || modelInstallBusy) return;
+    modelPromptDismissedRef.current = true;
+    setModelPrompt(null);
+    await startJobWithOptions(pending.options);
+  }, [modelInstallBusy, modelPrompt, startJobWithOptions]);
+
+  const handleInstallLargeModel = useCallback(async () => {
+    const pending = modelPrompt;
+    if (!pending || modelInstallBusy) return;
+    setModelInstallBusy(true);
+    setModelInstallError(null);
+    setModelProgress(null);
+    try {
+      await installLargeModel();
+      setModelPrompt(null);
+      await startJobWithOptions(pending.options);
+    } catch (e: unknown) {
+      setModelInstallError(errString(e));
+    } finally {
+      setModelInstallBusy(false);
+    }
+  }, [modelInstallBusy, modelPrompt, startJobWithOptions]);
+
+  const handleCancelLargeModelInstall = useCallback(() => {
+    if (!modelInstallBusy) return;
+    void cancelLargeModelInstall().catch((e: unknown) => {
+      setModelInstallError(errString(e));
+    });
+  }, [modelInstallBusy]);
+
+  const handleDismissModelPrompt = useCallback(() => {
+    if (modelInstallBusy) return;
+    modelPromptDismissedRef.current = true;
+    setModelPrompt(null);
+    setModelInstallError(null);
+    setModelProgress(null);
+  }, [modelInstallBusy]);
 
   const handleCancel = useCallback(async () => {
     const vid = stateRef.current.videoId;
@@ -376,6 +450,17 @@ export function App() {
       <SettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <ModelInstallDialog
+        open={modelPrompt !== null}
+        status={modelPrompt?.status ?? null}
+        progress={modelProgress}
+        busy={modelInstallBusy}
+        error={modelInstallError}
+        onInstall={() => void handleInstallLargeModel()}
+        onUseStandard={() => void handleUseStandardModel()}
+        onCancel={handleDismissModelPrompt}
+        onCancelDownload={handleCancelLargeModelInstall}
       />
     </div>
   );

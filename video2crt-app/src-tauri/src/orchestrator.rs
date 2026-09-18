@@ -150,19 +150,19 @@ fn cumulative(stage: &str) -> f32 {
     acc
 }
 
-/// Resolve the project root: prefer request override, fall back to
-/// `~/Documents/Hermes/Video2CRT` per HANDOFF-newtask-app.md.
+/// Resolve the project root: prefer request override, then an app-local data
+/// directory. A packaged install must not require the developer's checkout.
 pub fn resolve_project_root(req: &StartJobRequest) -> PathBuf {
     if let Some(p) = &req.project_root {
         return PathBuf::from(p);
     }
-    let home = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .unwrap_or_else(|_| "C:\\Users\\Public".to_string());
-    PathBuf::from(home)
-        .join("Documents")
-        .join("Hermes")
-        .join("Video2CRT")
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        return PathBuf::from(local).join("Video2CRT");
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Resolve the directory we write the output files into. Order of
@@ -210,17 +210,8 @@ pub async fn start(app: AppHandle, req: StartJobRequest) -> Result<JobHandle> {
     );
 
     let project_root = resolve_project_root(&req);
-    if !project_root.exists() {
-        let msg = format!("Project root does not exist: {}", project_root.display());
-        let _ = app.emit(
-            "pipeline://error",
-            serde_json::json!({
-                "videoId": derive_video_id(&req.url),
-                "message": msg,
-            }),
-        );
-        anyhow::bail!(msg);
-    }
+    std::fs::create_dir_all(&project_root)
+        .with_context(|| format!("無法建立應用程式資料夾：{}", project_root.display()))?;
 
     let video_id = derive_video_id(&req.url);
     // Output dir honors req.output_dir if the user picked a folder
@@ -663,27 +654,54 @@ async fn run_sidecar(
     progress: &impl Fn(&str, f32, &str),
 ) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
-    let local = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default());
-    let candidates = [
-        local.join("Video2CRT/bin/python.exe"),
-        local.join("hermes/hermes-agent/venv/Scripts/python.exe"),
-    ];
+    let mut candidates = Vec::new();
+    if let Some(python) = packaged_tool("python/python.exe") {
+        candidates.push(python);
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(&local).join("Video2CRT/runtime/tools/python/python.exe"));
+        // Development fallback only; the installer never needs this path.
+        candidates.push(PathBuf::from(&local).join("hermes/hermes-agent/venv/Scripts/python.exe"));
+    }
     let python = candidates
         .into_iter()
         .find(|p| p.is_file())
         .unwrap_or_else(|| PathBuf::from("python"));
-    let mut child = cmd_no_window(python)
+    let runtime = packaged_runtime_dir();
+    let mut child = cmd_no_window(python);
+    child
         .arg(script)
         .arg(payload)
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
         .env("HF_HUB_DISABLE_TELEMETRY", "1")
-        .env_remove("PYTHONPATH")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .context("無法啟動字幕處理程式")?;
+        .kill_on_drop(true);
+    if let Some(root) = runtime {
+        let tools = root.join("tools");
+        let python_dir = tools.join("python");
+        let app_dir = root.join("app");
+        let asr_model_dir = crate::model_manager::installed_model_dir("asr")
+            .unwrap_or_else(|| root.join("models/asr"));
+        let translation_model_dir = crate::model_manager::installed_model_dir("translation")
+            .unwrap_or_else(|| root.join("models/translation"));
+        let existing = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = std::env::split_paths(&existing).collect::<Vec<_>>();
+        paths.insert(0, python_dir);
+        paths.insert(0, tools);
+        if let Ok(path) = std::env::join_paths(paths) {
+            child.env("PATH", path);
+        }
+        child
+            .env("VIDEO2CRT_RUNTIME_DIR", &root)
+            .env("VIDEO2CRT_APP_ROOT", &app_dir)
+            .env("PYTHONPATH", &app_dir)
+            .env("HF_HOME", root.join("models/huggingface"))
+            .env("VIDEO2CRT_ASR_MODEL_DIR", asr_model_dir)
+            .env("VIDEO2CRT_TRANSLATION_MODEL_DIR", translation_model_dir);
+    }
+    let mut child = child.spawn().context("無法啟動字幕處理程式")?;
     // Drain stderr concurrently: a full ffmpeg/model pipe must not deadlock.
     let stderr = child.stderr.take().context("missing stderr")?;
     let stderr_task = tokio::spawn(async move {
@@ -753,6 +771,10 @@ async fn run_sidecar(
 fn locate_sidecar() -> Result<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    if let Some(runtime) = packaged_runtime_dir() {
+        candidates.push(runtime.join("app/pipeline_cli.py"));
+    }
+
     // 1. Compile-time absolute path from Cargo (works in dev builds).
     candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin/pipeline_cli.py"));
 
@@ -799,6 +821,43 @@ fn locate_sidecar() -> Result<PathBuf> {
             .collect::<Vec<_>>()
             .join("\n  - ")
     )
+}
+
+/// Locate the self-contained runtime shipped by the installer. Development
+/// builds may still use repository files, but packaged builds resolve tools,
+/// Python and models from this directory.
+fn packaged_runtime_dir() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(value) = std::env::var("VIDEO2CRT_RUNTIME_DIR") {
+        if !value.trim().is_empty() {
+            candidates.push(PathBuf::from(value));
+        }
+    }
+    if let Ok(value) = std::env::var("VIDEO2CRT_RESOURCE_DIR") {
+        let root = PathBuf::from(value);
+        candidates.push(root.join("runtime"));
+        candidates.push(root);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("runtime"));
+            candidates.push(parent.join("resources/runtime"));
+            candidates.push(parent.join("resources"));
+        }
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(local).join("Video2CRT/runtime"));
+    }
+    candidates
+        .into_iter()
+        .find(|path| path.join("app").is_dir() || path.join("tools").is_dir())
+}
+
+fn packaged_tool(name: &str) -> Option<PathBuf> {
+    packaged_runtime_dir().and_then(|root| {
+        let candidate = root.join("tools").join(name);
+        candidate.is_file().then_some(candidate)
+    })
 }
 
 async fn check_cancel(flag: &Arc<Mutex<bool>>) -> Result<()> {
@@ -1050,41 +1109,21 @@ async fn download_with_ytdlp_attempt(
 ) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, BufReader};
 
-    let candidates = [
-        // Hermes venv (where the user actually has yt-dlp installed,
-        // verified via `where yt-dlp`). Listed first so this .exe
-        // works for the current operator without depending on PATH.
-        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
-        "C:/Users/asaialabs/AppData/Local/hermes/hermes-agent/Scripts/yt-dlp.exe",
-        // Setup wizard target directory — for distribution builds,
-        // the wizard downloads yt-dlp here on first launch.
-        // %LOCALAPPDATA% resolves at runtime via env::var below; we
-        // leave the literal here as a fallback for the common case
-        // and read the env var in the find closure.
-        "%LOCALAPPDATA%/Video2CRT/bin/yt-dlp.exe",
-        // Common third-party locations.
-        "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/yt-dlp.exe",
-        "C:/Users/asaialabs/AppData/Roaming/Python/Python311/Scripts/yt-dlp.exe",
-        "C:/ProgramData/chocolatey/bin/yt-dlp.exe",
-    ];
-    let localappdata = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string());
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(ytdlp) = packaged_tool("yt-dlp.exe") {
+        candidates.push(ytdlp);
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        candidates.push(PathBuf::from(local).join("Video2CRT/runtime/tools/yt-dlp.exe"));
+    }
+    // Keep PATH as a development fallback. The installer always supplies the
+    // first candidate and therefore does not depend on system installations.
+    candidates.push(PathBuf::from("yt-dlp.exe"));
     let bin = candidates
-        .iter()
-        .map(|c| {
-            if let Some(stripped) = c.strip_prefix("%LOCALAPPDATA%/") {
-                // Normalise: strip any trailing slash from LOCALAPPDATA,
-                // and use a single forward slash (Windows accepts both).
-                let base = localappdata.trim_end_matches(['/', '\\']);
-                format!("{}/{}", base, stripped)
-            } else {
-                c.to_string()
-            }
-        })
-        .find(|resolved| std::path::Path::new(resolved).exists())
+        .into_iter()
+        .find(|resolved| resolved.is_file() || resolved == Path::new("yt-dlp.exe"))
         .ok_or_else(|| anyhow::anyhow!(
-            "yt-dlp not found. Tried:\n  - Hermes venv ({})\n  - %LOCALAPPDATA%\\Video2CRT\\bin\\\n  - WinGet links / Python Scripts / chocolatey.\n\nInstall yt-dlp with:\n  winget install yt-dlp\nor download yt-dlp.exe from https://github.com/yt-dlp/yt-dlp/releases/latest and place it in your PATH.",
-            std::env::var("USERPROFILE").unwrap_or_default()
+            "yt-dlp not found in the bundled runtime or PATH. Reinstall Video2CRT or restore runtime/tools/yt-dlp.exe."
         ))?;
 
     emit_progress(
@@ -1092,11 +1131,11 @@ async fn download_with_ytdlp_attempt(
         &handle.video_id,
         "download",
         0.0,
-        &format!("downloading via {} ...", bin),
+        &format!("downloading via {} ...", bin.display()),
         None,
     );
 
-    let mut command = cmd_no_window(bin);
+    let mut command = cmd_no_window(&bin);
     command
         .arg("-o")
         .arg("source.%(ext)s")
@@ -1122,27 +1161,11 @@ async fn download_with_ytdlp_attempt(
         // where to find Node — Hermes bundles Node under
         // %LOCALAPPDATA%\hermes\node\node.exe, and we also fall back
         // to PATH so a system Node install (winget) works too.
-        .arg(format!(
-            "node:{}",
-            std::path::Path::new(
-                &std::env::var("LOCALAPPDATA")
-                    .unwrap_or_else(|_| "C:/Users/asaialabs/AppData/Local".to_string())
-            )
-            .join("hermes")
-            .join("node")
-            .join("node.exe")
-            .to_string_lossy()
-        ))
-        // The remote component lets yt-dlp fetch the EJS challenge
-        // solver script from the yt-dlp GitHub release, which lets it
-        // solve YouTube's signature challenge. Without this, downloads
-        // still succeed but at lower quality (no 1080p / no high-bitrate
-        // streams). Tested on 2026-09-14 against three different
-        // YouTube IDs (jNQXAC9IVRw, dQw4w9WgXcQ, CaCSuzR4DwM) — without
-        // this flag we got 533KB-33MB (low quality); with it we should
-        // get the full bitrate.
-        .arg("--remote-components")
-        .arg("ejs:github");
+        .arg(format!("node:{}", packaged_tool("node.exe")
+            .or_else(|| std::env::var("LOCALAPPDATA").ok()
+                .map(|local| PathBuf::from(local).join("hermes/node/node.exe")))
+            .unwrap_or_else(|| PathBuf::from("node.exe"))
+            .display()));
     if let Some(player_client) = player_client {
         command
             .arg("--extractor-args")
@@ -1284,7 +1307,9 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
     let vf = format!(
         "crop={crop},libplacebo=custom_shader_path=crt.glsl:w=1920:h=1080:fps=30:force_original_aspect_ratio=0"
     );
-    // Probe source codec first, then pick the right hw decoder.
+    // Probe source codec first, then pick the right hw decoder when an NVIDIA
+    // GPU is actually present. The ffmpeg build may expose CUDA decoders even
+    // on PCs without an NVIDIA device, so codec support alone is insufficient.
     // Previous code forced `-hwaccel cuda -c:v vp9_cuvid` for all inputs,
     // which ACCESS_VIOLATIONs (0xC0000005) on h264/av1/hevc sources.
     let probe = cmd_no_window(&ffmpeg)
@@ -1313,27 +1338,33 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
             }
         })
         .unwrap_or_default();
+    let has_nvidia = cmd_no_window("nvidia-smi")
+        .arg("-L")
+        .output()
+        .await
+        .map(|output| output.status.success())
+        .unwrap_or(false);
     let mut cmd = cmd_no_window(ffmpeg);
     cmd.arg("-y");
     // Only use cuda hwaccel with a matching cuvid decoder; otherwise
     // fall back to software decode. This mirrors `ffprobe → decoder` logic.
-    match codec.as_str() {
-        "h264" | "avc" => {
+    match (has_nvidia, codec.as_str()) {
+        (true, "h264") | (true, "avc") => {
             cmd.arg("-hwaccel")
                 .arg("cuda")
                 .arg("-c:v")
                 .arg("h264_cuvid");
         }
-        "hevc" | "h265" => {
+        (true, "hevc") | (true, "h265") => {
             cmd.arg("-hwaccel")
                 .arg("cuda")
                 .arg("-c:v")
                 .arg("hevc_cuvid");
         }
-        "vp9" => {
+        (true, "vp9") => {
             cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("vp9_cuvid");
         }
-        "av1" => {
+        (true, "av1") => {
             cmd.arg("-hwaccel").arg("cuda").arg("-c:v").arg("av1_cuvid");
         }
         _ => {
@@ -1424,6 +1455,9 @@ async fn fill_translations(
 
 /// Locate ffmpeg.exe on Windows.
 async fn locate_ffmpeg() -> Result<String> {
+    if let Some(ffmpeg) = packaged_tool("ffmpeg.exe") {
+        return Ok(ffmpeg.to_string_lossy().to_string());
+    }
     for candidate in [
         "ffmpeg",
         "C:/ProgramData/chocolatey/bin/ffmpeg.exe",

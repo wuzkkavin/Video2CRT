@@ -36,10 +36,16 @@
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "compression": "none"
+      },
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
       }
     },
-    "resources": [],
+    "resources": {
+      "../.packaging/runtime": "runtime"
+    },
     "category": "Utility",
     "shortDescription": "CRT phosphor-style YouTube to MP4",
     "longDescription": "Video2CRT converts YouTube videos to 1920x1080 CRT-style MP4 with bilingual subtitles via faster-whisper ASR."

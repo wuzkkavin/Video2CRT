@@ -13,8 +13,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   DoneEvent,
   ErrorEvent,
+  LargeModelStatus,
   JobHandle,
   ModelInfo,
+  ModelInstallProgress,
   ProgressEvent,
   ReadyEvent,
   StartJobRequest,
@@ -57,6 +59,21 @@ export function listTranslationModels(): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>("list_translation_models");
 }
 
+/** Check whether the optional high-quality local model bundle is installed. */
+export function getLargeModelStatus(): Promise<LargeModelStatus> {
+  return invoke<LargeModelStatus>("get_large_model_status");
+}
+
+/** Download and verify the optional high-quality local model bundle. */
+export function installLargeModel(): Promise<LargeModelStatus> {
+  return invoke<LargeModelStatus>("install_large_model");
+}
+
+/** Cancel an in-progress optional model download. */
+export function cancelLargeModelInstall(): Promise<void> {
+  return invoke<void>("cancel_large_model_install");
+}
+
 // ---------- Events ----------
 
 /** Subscribe to `pipeline://ready` (fires once at app startup). */
@@ -85,4 +102,11 @@ export function onError(
   cb: (payload: ErrorEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<ErrorEvent>("pipeline://error", (e) => cb(e.payload));
+}
+
+/** Subscribe to optional model installation progress. */
+export function onModelProgress(
+  cb: (payload: ModelInstallProgress) => void,
+): Promise<UnlistenFn> {
+  return listen<ModelInstallProgress>("model://progress", (e) => cb(e.payload));
 }

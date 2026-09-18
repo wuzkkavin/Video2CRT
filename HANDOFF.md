@@ -326,3 +326,49 @@ MEDIA: <使用者家目錄>\Documents\Hermes\Video2CRT\output\yt_XXX\final.mp4
 
 - 低品質原始影片的細節上限仍受原始來源限制；本次修正的是字幕燒錄不再額外降低畫質。
 - 建議下一次以一支低解析影片分別測試原文、雙語本機、雙語純雲端三種模式，確認字幕內容與畫質的實機觀感。
+# Video2CRT — 2026-09-18 Windows App 發布里程碑
+
+## 本輪目的
+
+完成可散佈 Windows APP 的收工交接：把必要 runtime 與標準模型放入 NSIS 安裝包，加入高品質模型的使用者確認式安裝，補齊下一個 agent 可直接使用的規格、操作、維護、測試與發布文件，並完成當輪授權的 commit/push。
+
+## Current truth
+
+- APP 版本：`0.1.0`，Windows x64，Tauri 2 + React/Vite + Rust/Tokio + Python sidecar。
+- 正式安裝包：`video2crt-app/dist-distributable/Video2CRT_0.1.0_x64-setup.exe`。
+- 安裝包已包含 Python 3.12 embeddable、ffmpeg、Node.js、官方 yt-dlp、離線 WebView2、OpenCC 與標準 ASR／翻譯模型。
+- 高品質模型不是靜默下載：字幕工作開始且模型缺少時，UI 顯示安裝／標準模型／稍後選項；確認後下載到使用者資料夾，完成 manifest 後才切換。
+- 發布包 SHA-256（2026-09-18）：`96AAEF70137210371A2E471727F7E4FDE9CECE3DA02B0047A5228265B8B66232`。
+
+## 本輪變更與權威文件
+
+- 模型管理：`video2crt-app/src-tauri/src/model_manager.rs`、`video2crt-app/src/components/ModelInstallDialog.tsx`。
+- Tauri command、runtime 資源與模型路徑：`video2crt-app/src-tauri/src/lib.rs`、`orchestrator.rs`。
+- 發布腳本與 runtime staging：`video2crt-app/scripts/build-distributable.ps1`、`stage-models.py`。
+- 文件入口：`video2crt-app/README.md`、`SPEC.md`、`USER_GUIDE.md`、`DEVELOPMENT_GUIDE.md`、`TEST_ACCEPTANCE.md`、`RELEASE.md`、`AGENT_GUIDE.md`。
+
+## 當輪驗證
+
+- `npm run build`：通過。
+- `cargo check --manifest-path src-tauri/Cargo.toml`：通過（既有 warnings）。
+- `cargo test ... model_manager::tests`：通過，1 項。
+- `python scripts/test_subtitle_contract.py`（搭配 repo `src`）：26 項通過。
+- `powershell -File scripts/build-distributable.ps1`：通過，NSIS 產物存在。
+- silent install：exit 0；安裝後 `video2crt.exe` 啟動並持續執行超過 5 秒。
+- 尚未驗證：乾淨 Windows 使用者帳戶、完整 GUI 到 `final.mp4` 視覺 E2E、實際下載完整約 3.2 GB 高品質模型。
+
+## Git 與外部狀態
+
+- 工作分支：`main`。
+- 本輪只應提交 APP 原始碼、發布腳本、文件與 lockfile；父層影片輸出、原始影音、日誌、模型快取與暫存檔不得提交。
+- `origin` 目前由 GitHub 回報為公開 repository；本輪不可新增私密路徑、憑證或使用者資料。若日後要求私有化，需另行明確處理 repository visibility。
+- commit/push 由老吳在本輪訊息中明確授權；完成後要再次比較本機 `HEAD` 與 `origin/main`。
+
+## 下一個 agent 的安全起手式
+
+1. 閱讀 `video2crt-app/AGENT_GUIDE.md`、`SPEC.md`、`RELEASE.md`、`TEST_ACCEPTANCE.md`。
+2. 執行 `git status --short`，確認不要碰父層既有輸出。
+3. 若要改模型下載，先讀 `model_manager.rs` 與其單元測試；不要直接啟動 3.2 GB 下載。
+4. 若要宣稱完整發布，先補乾淨帳戶安裝、模型下載與 GUI→`final.mp4` E2E 證據。
+
+---

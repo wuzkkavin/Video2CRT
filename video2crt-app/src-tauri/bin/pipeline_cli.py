@@ -41,10 +41,14 @@ from pathlib import Path
 from typing import Any
 
 # --- path bootstrap ----------------------------------------------------------
-# Make `from video2crt.*` work whether the Tauri .exe ships us next to a
-# bundled copy or alongside the live repo at C:/Users/asaialabs/Documents/
-# Hermes/Video2CRT. The repo path is the canonical source (gotcha 22).
-_REPO_ROOT = str(Path(__file__).resolve().parents[3])
+# Make `from video2crt.*` work both in the source tree and in the packaged
+# runtime.  The installer sets VIDEO2CRT_APP_ROOT to runtime/app, so this
+# process never depends on the developer's checkout.
+_runtime_value = os.environ.get("VIDEO2CRT_RUNTIME_DIR", "").strip()
+_RUNTIME_ROOT = Path(_runtime_value).resolve() if _runtime_value else Path(__file__).resolve().parents[1]
+if not _RUNTIME_ROOT.is_dir():
+    _RUNTIME_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = str(Path(os.environ.get("VIDEO2CRT_APP_ROOT", _RUNTIME_ROOT / "app")))
 _SRC_DIR = str(Path(_REPO_ROOT) / "src")
 
 # Insert in priority order: src first (package root), then bare repo path so
@@ -79,16 +83,30 @@ def burn_subtitles_local(raw: Path, srt: Path, subtitled: Path, cwd_dir: Path) -
         "PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,"
         "BorderStyle=1,Outline=2,Shadow=0,MarginV=10"
     )
+    # NVENC is fast on supported NVIDIA machines. Try the approved encoder
+    # first, then retry with software encoding on ordinary PCs.
+    video_codec = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23"]
     cmd = [
         "ffmpeg", "-y", "-i", "raw.mp4",
         "-vf", f"subtitles=zh-Hant.srt:force_style='{force_style}'",
-        # Keep the established subtitle-burn encoder settings. They are the
-        # settings used by the user-approved visual baseline; subtitle work
-        # must not alter the CRT render, crop, sizing, or its appearance.
-        "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23",
+        *video_codec,
         "-pix_fmt", "yuv420p", "-an", "subtitled.mp4",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(cwd_dir), timeout=300)
+    if proc.returncode != 0:
+        fallback = [
+            item for item in cmd
+            if item not in ("h264_nvenc", "p4", "23", "-cq")
+        ]
+        codec_index = fallback.index("-c:v") + 1
+        fallback[codec_index:codec_index + 1] = ["libx264"]
+        preset_index = fallback.index("-preset") + 1
+        fallback[preset_index:preset_index + 1] = ["veryfast"]
+        pix_index = fallback.index("-pix_fmt")
+        fallback[pix_index:pix_index] = ["-crf", "18"]
+        proc = subprocess.run(fallback, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              cwd=str(cwd_dir), timeout=300)
     if proc.returncode != 0:
         raise RuntimeError(f"subtitle burn failed: {proc.stderr}")
     return subtitled
@@ -339,7 +357,9 @@ from subtitle_engine import (
 
 def locate_ytdlp() -> Path | None:
     local = Path(os.environ.get("LOCALAPPDATA", ""))
+    runtime = Path(os.environ.get("VIDEO2CRT_RUNTIME_DIR", "").strip())
     candidates = [
+        runtime / "tools/yt-dlp.exe",
         local / "hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
         local / "hermes/hermes-agent/Scripts/yt-dlp.exe",
         local / "Video2CRT/bin/yt-dlp.exe",
@@ -532,6 +552,17 @@ def load_local_translations(repo_root: Path) -> dict[str, str]:
         return {}
 
 
+def packaged_model_path(env_name: str, required_files: list[str]) -> str | None:
+    """Use an installer-provided model directory when it is complete."""
+    value = os.environ.get(env_name, "").strip()
+    if not value:
+        return None
+    path = Path(value)
+    if path.is_dir() and all((path / name).is_file() for name in required_files):
+        return str(path)
+    return None
+
+
 def run(args: dict[str, Any]) -> int:
     """Run the four stages. Returns process exit code."""
     if args.get("phase") == "finalize":
@@ -578,9 +609,11 @@ def run(args: dict[str, Any]) -> int:
     from huggingface_hub import snapshot_download
     model_options = dict(repo_id="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
         revision="0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", token=False,
-        allow_patterns=["config.json", "model.bin", "tokenizer.json", "vocabulary.json", "preprocessor_config.json"])
+        allow_patterns=["config.json", "model.bin", "tokenizer.json", "vocabulary.txt"])
+    model_path = packaged_model_path("VIDEO2CRT_ASR_MODEL_DIR", model_options["allow_patterns"])
     try:
-        model_path = snapshot_download(**model_options, local_files_only=True)
+        if model_path is None:
+            model_path = snapshot_download(**model_options, local_files_only=True)
         if not all((Path(model_path) / name).is_file() for name in model_options["allow_patterns"]):
             raise FileNotFoundError("incomplete ASR model cache")
     except Exception:

@@ -11,6 +11,7 @@
 //! polling.
 
 pub mod orchestrator;
+pub mod model_manager;
 mod settings;
 mod translator;
 
@@ -180,10 +181,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // Tauri resources live beside the installed executable.  Expose
+            // that location to the pipeline so packaged builds never depend
+            // on the developer's Hermes installation.
+            if let Ok(resource_dir) = app.path().resource_dir() {
+                std::env::set_var("VIDEO2CRT_RESOURCE_DIR", resource_dir);
+            }
             // Register a global so commands that need an AppHandle without
             // being passed one (rare) can still reach it.
             app.manage(orchestrator::JobRegistry::default());
             app.manage(orchestrator::AsrGate::default());
+            app.manage(model_manager::InstallState::default());
             // Fire one startup event so the React side can do "is api key set"
             // without an explicit call.
             let _ = app.emit("pipeline://ready", ());
@@ -197,6 +205,9 @@ pub fn run() {
             save_api_key,
             delete_api_key,
             list_translation_models,
+            model_manager::get_large_model_status,
+            model_manager::install_large_model,
+            model_manager::cancel_large_model_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Video2CRT app");
