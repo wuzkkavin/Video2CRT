@@ -21,6 +21,7 @@ Video2CRT 是一個 Windows 桌面應用程式：貼上 YouTube URL，選擇字�
 - [RELEASE.md](RELEASE.md)：建置、發布包、hash 與可重現性界線。
 - [AGENT_GUIDE.md](AGENT_GUIDE.md)：下一個 agent 的安全接手順序。
 - [../docs/GOTCHA_GUIDE.md](../docs/GOTCHA_GUIDE.md)：CRT skill gotcha 的唯一來源、版本檢查與專案對照。
+- [../docs/PROJECT_DOCUMENTATION_INDEX.md](../docs/PROJECT_DOCUMENTATION_INDEX.md)：SA、SD、UI/UX、RD、DB、API、QA、資安、發布與決策文件總索引。
 - [../HANDOFF.md](../HANDOFF.md)：跨 session 的最新狀態與下一步。
 
 ## 開發者快速檢查

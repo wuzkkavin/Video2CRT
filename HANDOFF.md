@@ -1,5 +1,11 @@
 # Video2CRT - HANDOFF
 
+## 開發文件套件 — 2026-09-18
+
+本專案已建立完整 Markdown 開發設計文件入口：[docs/PROJECT_DOCUMENTATION_INDEX.md](docs/PROJECT_DOCUMENTATION_INDEX.md)。它一次涵蓋需求、SA、SD、UI/UX、RD、資料／DB、API、測試 QA、資安、發布維運、決策追蹤與 Agent 接手；目前版本沒有伺服器 DB，已在 DB 文件明確記錄為不適用，而不是省略。
+
+新開發者先讀文件索引、`SPEC.md`、`DEVELOPMENT_GUIDE.md` 與本檔最新段落，再依改動範圍執行驗證。未來接收一份新的開發規格時，使用全域 skill **完全開發設計指南**（machine id：`complete-development-design-guide`）一次建立或更新整套 Markdown 文件；不要只新增單一需求檔而遺漏設計、測試、資安或發布契約。
+
 ## 收工補充 — 2026-09-18 測試盤點修正
 
 前一版里程碑摘要中的「26 項」只指 APP Python 字幕契約測試。為避免接手者誤把它當成整個專案總數，本輪完整驗證如下：
