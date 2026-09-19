@@ -357,7 +357,7 @@ class LocalTranslator:
             progress("首次準備本機翻譯模型（約 1.3 GB），字幕留在本機")
             folder = snapshot_download(**options)
         self.model = ctranslate2.Translator(folder, device="cpu", compute_type="int8",
-                                            inter_threads=1, intra_threads=min(4, os.cpu_count() or 2))
+                                            inter_threads=1, intra_threads=1)
         self.sp = sentencepiece.SentencePieceProcessor(model_file=str(Path(folder) / "sentencepiece.bpe.model"))
         self.vocabulary = set(json.loads((Path(folder) / "shared_vocabulary.json").read_text(encoding="utf-8")))
         self.cache = {}
@@ -373,14 +373,26 @@ class LocalTranslator:
         tokens = [tag] + self.sp.encode(text, out_type=str) + ["</s>"]
         if len(tokens) > 500:
             raise ValueError("字幕段落過長，需要重新分段")
-        result = self.model.translate_batch([tokens], target_prefix=[["__zh__"]],
-                                             beam_size=4, max_decoding_length=512)[0]
-        generated = [t for t in result.hypotheses[0] if not t.startswith("__") and t not in ("</s>", "<s>", "<pad>")]
-        zh = traditional(self.sp.decode(generated).strip())
-        if not zh or "<unk>" in zh or not re.search(r"[\u3400-\u9fff]", zh):
+        zh = self._decode(tokens)
+        if not self._valid(zh):
+            # Beam search occasionally degenerates into repeated ⁇ on short
+            # lyric lines. One greedy pass usually recovers a usable
+            # translation; if that also fails, fail exactly as before.
+            zh = self._decode(tokens, beam_size=1)
+        if not self._valid(zh):
             raise ValueError("本機模型未產生有效中文翻譯，可改用 MiniMax 翻譯")
         self.cache[key] = zh
         return zh
+
+    def _decode(self, tokens, beam_size=4) -> str:
+        result = self.model.translate_batch([tokens], target_prefix=[["__zh__"]],
+                                            beam_size=beam_size, max_decoding_length=512)[0]
+        generated = [t for t in result.hypotheses[0] if not t.startswith("__") and t not in ("</s>", "<s>", "<pad>")]
+        return traditional(self.sp.decode(generated).strip())
+
+    @staticmethod
+    def _valid(zh: str) -> bool:
+        return bool(zh) and "<unk>" not in zh and bool(re.search(r"[\u3400-\u9fff]", zh))
 
 
 def translate_locally(segments, progress=lambda message: None):
@@ -389,7 +401,18 @@ def translate_locally(segments, progress=lambda message: None):
         return {}
     translator = LocalTranslator(progress)
     translations = {}
+    skipped = 0
     for i, s in enumerate(pending, 1):
         progress(f"本機翻譯 {i}/{len(pending)}")
-        translations[s["text"]] = translator.translate(s["text"], caption_language(s))
+        try:
+            translations[s["text"]] = translator.translate(s["text"], caption_language(s))
+        except ValueError as exc:
+            # Untranslatable single lines (music-cue echoes, shouted
+            # fragments the small model only repeats) must not kill the
+            # whole video. The caller drops them from the SRT entirely:
+            # neither translation nor original is shown for that cue.
+            skipped += 1
+            progress(f"略過無法翻譯的第 {i} 段：{exc}")
+    if skipped:
+        progress(f"共略過 {skipped} 段無法翻譯，保留其餘雙語字幕")
     return translations

@@ -20,7 +20,7 @@
 - [CRT skill gotcha 指南](docs/GOTCHA_GUIDE.md)
 - [完全開發設計文件索引](docs/PROJECT_DOCUMENTATION_INDEX.md)
 
-本輪完整自動化測試共 **51 項**：根目錄 13 項、APP 字幕契約 26 項、Rust 全部測試目標 12 項。另已執行 `scripts/install_skill.py`，目前本機 CRT skill 實測為 **38 條 gotcha**；gotcha 數量與測試案例數量是不同指標。
+本輪完整自動化測試共 **59 項**：根目錄 15 項、APP 字幕契約 29 項、Rust 全部測試目標 15 項。另已執行 `scripts/install_skill.py`，目前本機 CRT skill 實測為 **38 條 gotcha**；gotcha 數量與測試案例數量是不同指標。
 - [最新交接紀錄](HANDOFF.md)
 
 ## 用途
@@ -96,7 +96,7 @@ python scripts/install_skill.py
 python tests/run_all.py
 ```
 
-根目錄測試共 13 項，全部應該 OK。APP 測試與完整驗收請依 `video2crt-app/TEST_ACCEPTANCE.md` 執行。
+根目錄測試共 15 項，全部應該 OK。APP 測試與完整驗收請依 `video2crt-app/TEST_ACCEPTANCE.md` 執行。
 
 ### 3. 新增一支影片
 

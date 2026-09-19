@@ -70,9 +70,8 @@ flowchart TD
   E --> F[ffmpeg + libplacebo CRT 渲染 raw.mp4]
   F --> G{字幕模式}
   G -->|無字幕| M[封裝原始音訊]
-  G -->|原文或雙語| H[Python sidecar：16 kHz 音訊與 ASR]
-  H --> I[比對同語言 YouTube 字幕]
-  I --> J{雙語？}
+  G -->|原文或雙語| H[Python sidecar：16 kHz 音訊與本機 ASR]
+  H --> J{雙語？}
   J -->|否| K[建立原文 SRT]
   J -->|是| L[本機或 MiniMax 取得繁中]
   L --> K
@@ -110,12 +109,9 @@ Python sidecar 先將 `source.mp4` 萃取為 16 kHz 單聲道 WAV，然後使用
 
 Whisper 的 word timestamps 若觸發已知 NumPy 對齊錯誤，ASR 會改以不帶 word timestamps 的模式重試，而不是中止整支影片。
 
-接著系統以以下順序決定原文字幕：
+原文字幕只取自本機 ASR，不再抓取或採用任何 YouTube 字幕（即時演講等無字幕片源與有字幕片源行為一致；字幕可用性不再影響輸出）。ASR 以單線程＋temperature 0 跑，同一音檔每次結果相同。
 
-1. 對比 YouTube 同原語言字幕與 ASR 偵測語言。
-2. 只有語言相符、至少兩段、且時間範圍沒有明顯短缺的 YouTube 字幕，才取代 ASR。
-3. YouTube 字幕不完整、語言不符或只是翻譯字幕時，保留本機 ASR。
-4. 片源提供繁中字幕時，依時間重疊對齊到原文段落；不同切段會先合併為完整雙語 cue。
+括號音效標記（如 `["Pomp and Circumstance"]`、`[Music]`）屬非語音，直接在原文階段剔除，不送翻譯也不進字幕；裸露的奇怪口語不受影響。
 
 字幕時間會排序、去重、限制到影片時長並消除重疊。開始時間相同的 ASR 替代段落會保留較完整者；倒退或無效時間則明確報錯，避免產生錯位 SRT。
 
@@ -126,7 +122,7 @@ Whisper 的 word timestamps 若觸發已知 NumPy 對齊錯誤，ASR 會改以�
 - 本機翻譯使用安裝包內已釘選的 M2M100 CTranslate2 標準模型；若安裝程序完成高品質模型下載，sidecar 會依 manifest 使用 pinned 1.2B 模型。下載的是模型資料，不含使用者影片或字幕上傳。
 - 若採用 `cloudFallback`，本機翻譯失敗時才逐段呼叫 MiniMax；`cloud` 模式直接呼叫 MiniMax。
 - MiniMax 回覆會移除 `<think>...</think>`、多餘標籤與格式字元，防止模型內部推理文字進入影片。
-- 未完成必要翻譯時，流程在燒錄前失敗；不應輸出混雜錯誤說明或不完整雙語的 `final.mp4`。
+- 本機翻譯翻不出的單句（如純符號殘句）會整句略過（原文亦不顯示），其餘照常雙語，不會為一句殺掉整單；雲端純雲端模式仍維持失敗即停。
 
 ### 4.6 字幕燒錄與封裝
 

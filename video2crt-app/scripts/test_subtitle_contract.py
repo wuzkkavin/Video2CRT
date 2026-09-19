@@ -284,6 +284,47 @@ class SubtitleContract(unittest.TestCase):
             pipeline.run({"outputDir": str(folder), "phase": "finalize", "cloudTranslation": True})
         self.assertEqual(blocks((folder / "zh-Hant.srt").read_text(encoding="utf-8"))[0][2:], ["我們一起學習。"])
 
+    def test_no_youtube_caption_fetch_exists(self):
+        """YouTube captions must never come back: live/un captioned videos
+        are first-class, and caption availability must not change output."""
+        for name in ("fetch_exact_youtube_captions",
+                     "fetch_traditional_youtube_captions",
+                     "youtube_declared_language",
+                     "locate_ytdlp"):
+            self.assertFalse(hasattr(pipeline, name), f"{name} must stay removed")
+
+    def test_translate_locally_skips_untranslatable_segment(self):
+        segments = [
+            {"start": 0, "end": 2, "text": "Hello.", "language": "en"},
+            {"start": 2, "end": 4, "text": "6", "language": "en"},
+        ]
+        def fake_translate(text, language):
+            if text == "6":
+                raise ValueError("nope")
+            return "好。"
+        with patch("subtitle_engine.LocalTranslator") as cls:
+            cls.return_value.translate.side_effect = fake_translate
+            result = pipeline.translate_locally(segments, progress=lambda m: None)
+        self.assertEqual(result, {"Hello.": "好。"})
+
+    def test_finalize_drops_untranslated_local_segment(self):
+        folder = self.prepared_job()
+        (folder / "subtitle_segments.json").write_text(json.dumps([
+            {"start": 0, "end": 2, "text": "Hello everyone.", "language": "en"},
+            {"start": 2, "end": 4, "text": "6", "language": "en"}]), encoding="utf-8")
+        (folder / "subtitle_translations.json").write_text(
+            json.dumps({"Hello everyone.": "大家好。"}), encoding="utf-8")
+        burned = []
+        def burn(raw, srt, output, cwd):
+            burned.append(srt.read_text(encoding="utf-8"))
+        with patch.object(pipeline, "translate_locally", return_value={}), \
+             patch.object(pipeline, "burn_subtitles_local", side_effect=burn), \
+             patch.object(pipeline, "mux_audio_local"):
+            pipeline.run({"outputDir": str(folder), "phase": "finalize",
+                          "cloudTranslation": False, "translationMode": "local"})
+        self.assertEqual(len(blocks(burned[0])), 1)
+        self.assertEqual(blocks(burned[0])[0][2:], ["Hello everyone.", "大家好。"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

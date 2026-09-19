@@ -28,16 +28,25 @@ def transcribe(audio: Path, model_name: str = "medium", language: str | None = N
     """
     from faster_whisper import WhisperModel
     # Prefer the downloaded model; a network metadata timeout must not stall ASR.
+    # Single-threaded inference: multi-threaded beam search is nondeterministic
+    # across runs (same audio must yield same segments for reproducible output).
     try:
-        model = WhisperModel(model_name, device="cpu", compute_type="int8", local_files_only=True)
+        model = WhisperModel(model_name, device="cpu", compute_type="int8", local_files_only=True,
+                             cpu_threads=1, num_workers=1)
     except (OSError, ValueError):
-        model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        model = WhisperModel(model_name, device="cpu", compute_type="int8",
+                             cpu_threads=1, num_workers=1)
     kwargs = {
         "beam_size": 10,
         "word_timestamps": True,
         "vad_filter": False,
         "condition_on_previous_text": False,
         # NEVER initial_prompt (gotcha 14)
+        # Scalar temperature 0 disables faster-whisper's fallback ladder
+        # ([0.0, 0.2, ...] resamples bad windows with RANDOM sampling, so
+        # the same audio yields different segments every run). Deterministic
+        # output is required for reproducible subtitles.
+        "temperature": 0.0,
     }
     if language:
         kwargs["language"] = language

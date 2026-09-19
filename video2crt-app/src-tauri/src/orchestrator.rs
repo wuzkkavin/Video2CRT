@@ -812,7 +812,9 @@ fn locate_sidecar() -> Result<PathBuf> {
 
     for p in &candidates {
         if p.exists() {
-            return Ok(p.canonicalize().unwrap_or_else(|_| p.clone()));
+            return Ok(strip_verbatim_prefix(
+                p.canonicalize().unwrap_or_else(|_| p.clone()),
+            ));
         }
     }
 
@@ -854,6 +856,24 @@ fn packaged_runtime_dir() -> Option<PathBuf> {
     candidates
         .into_iter()
         .find(|path| path.join("app").is_dir() || path.join("tools").is_dir())
+        .map(strip_verbatim_prefix)
+}
+
+/// `std::env::current_exe()` and `Path::canonicalize()` return verbatim
+/// (`\\?\`-prefixed) paths on Windows. Process spawning tolerates them, but
+/// native model loaders (ctranslate2 under faster-whisper) fail to open
+/// files beneath such paths (`Unable to open file 'model.bin'`). Strip the
+/// prefix once, where runtime locations are resolved, so every downstream
+/// consumer (env vars, child argv, logs) sees a plain path.
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        if let Some(unc) = rest.strip_prefix(r"UNC\") {
+            return PathBuf::from(format!(r"\\{unc}"));
+        }
+        return PathBuf::from(rest);
+    }
+    path
 }
 
 fn packaged_tool(name: &str) -> Option<PathBuf> {
@@ -1302,14 +1322,18 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
         .parent()
         .ok_or_else(|| anyhow::anyhow!("raw_out has no parent dir"))?;
     let shader_path = outdir.join("crt.glsl");
-    let shader_text = match std::fs::read_to_string("../scripts/crt.glsl") {
-        Ok(s) => s,
-        Err(_) => include_str!("../../scripts/crt.glsl").to_string(),
-    };
-    std::fs::write(&shader_path, &shader_text)?;
-    let vf = format!(
-        "crop={crop},libplacebo=custom_shader_path=crt.glsl:w=1920:h=1080:fps=30:force_original_aspect_ratio=0"
-    );
+    // Installed app: prefer the staged runtime copy so the shader never
+    // depends on the developer checkout layout. Dev fallback is the repo
+    // scripts dir; final fallback is the compile-time snapshot.
+    let base_shader = packaged_runtime_dir()
+        .map(|root| root.join("app").join("scripts").join("crt.glsl"))
+        .filter(|p| p.is_file())
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .or_else(|| std::fs::read_to_string("../scripts/crt.glsl").ok())
+        .unwrap_or_else(|| include_str!("../../scripts/crt.glsl").to_string());
+    // One grille for every video (legacy strength). Low sources are
+    // pre-upscaled below instead of weakening the mask.
+    std::fs::write(&shader_path, &base_shader)?;
     // Probe source codec first, then pick the right hw decoder when an NVIDIA
     // GPU is actually present. The ffmpeg build may expose CUDA decoders even
     // on PCs without an NVIDIA device, so codec support alone is insufficient.
@@ -1341,13 +1365,18 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
             }
         })
         .unwrap_or_default();
+    // Source dimensions come from ffprobe (the ffmpeg binary rejects
+    // stream-selection flags, so dims must not be read from it). A missing
+    // ffprobe or unparseable output keeps the legacy direct render path.
+    let (src_w, src_h) = probe_source_dims(&ffmpeg, source).await;
+    let vf = render_filter(crop, needs_prescale(src_w, src_h));
     let has_nvidia = cmd_no_window("nvidia-smi")
         .arg("-L")
         .output()
         .await
         .map(|output| output.status.success())
         .unwrap_or(false);
-    let mut cmd = cmd_no_window(ffmpeg);
+    let mut cmd = cmd_no_window(&ffmpeg);
     cmd.arg("-y");
     // Only use cuda hwaccel with a matching cuvid decoder; otherwise
     // fall back to software decode. This mirrors `ffprobe → decoder` logic.
@@ -1375,7 +1404,7 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
             cmd.arg("-hwaccel").arg("auto");
         }
     }
-    let status = cmd
+    let output = cmd
         .arg("-i")
         .arg(source)
         .arg("-vf")
@@ -1391,14 +1420,110 @@ async fn render_crt(source: &Path, raw_out: &Path, crop: &str) -> Result<()> {
         .arg("yuv420p")
         .arg(raw_out)
         .current_dir(outdir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
         .await?;
-    if !status.success() {
-        anyhow::bail!("ffmpeg render failed (exit {status:?})");
+    if !output.status.success() {
+        // Keep stderr (ffmpeg prints filter errors there). Without this tail
+        // the UI only shows a bare exit code (e.g. Unknown filter
+        // 'libplacebo' from an essentials build is invisible).
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: String = stderr
+            .chars()
+            .rev()
+            .take(2000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
+        anyhow::bail!(
+            "ffmpeg render failed (exit {:?}) using {}: {}",
+            output.status,
+            ffmpeg,
+            tail.trim()
+        );
     }
     Ok(())
+}
+
+/// Whether a source needs a lanczos pre-upscale to 1080p before the CRT
+/// shader. Only true when the SOURCE frame is smaller than 1920x1080 in
+/// both dimensions (e.g. 640x480, 1280x720). 1080p sources (including 4:3
+/// 1440x1080) and unknown sizes keep the legacy direct path untouched.
+fn needs_prescale(source_w: Option<u32>, source_h: Option<u32>) -> bool {
+    matches!((source_w, source_h), (Some(w), Some(h)) if w > 0 && h > 0 && w < 1920 && h < 1080)
+}
+
+/// Build the Stage 3 filter graph. `prescale` inserts a lanczos upscale to
+/// exactly 1920x1080 ahead of libplacebo (which then sees native-res input
+/// and only applies the shader, no scaling of its own).
+fn render_filter(crop: &str, prescale: bool) -> String {
+    const PLACEBO: &str =
+        "libplacebo=custom_shader_path=crt.glsl:w=1920:h=1080:fps=30:force_original_aspect_ratio=0";
+    if prescale {
+        format!("crop={crop},scale=1920:1080:flags=lanczos,{PLACEBO}")
+    } else {
+        format!("crop={crop},{PLACEBO}")
+    }
+}
+
+/// Locate an ffprobe binary next to the chosen ffmpeg, else on PATH.
+async fn locate_ffprobe(ffmpeg_path: &str) -> Option<PathBuf> {
+    let sibling = PathBuf::from(ffmpeg_path);
+    if let Some(name) = sibling.file_name().and_then(|n| n.to_str()) {
+        let probe_name = if name.eq_ignore_ascii_case("ffmpeg.exe") {
+            "ffprobe.exe"
+        } else if name == "ffmpeg" {
+            "ffprobe"
+        } else {
+            ""
+        };
+        if !probe_name.is_empty() {
+            let candidate = sibling.with_file_name(probe_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    let probe = cmd_no_window("ffprobe").arg("-version").output().await;
+    match probe {
+        Ok(o) if o.status.success() => Some(PathBuf::from("ffprobe")),
+        _ => None,
+    }
+}
+
+/// Parse `ffprobe -show_entries stream=width,height -of default=nw=1:nk=1`
+/// output (`width\\nheight\\n`) into dimensions.
+fn parse_probe_dims(text: &str) -> (Option<u32>, Option<u32>) {
+    let mut lines = text.lines().map(|l| l.trim());
+    let w = lines.next().and_then(|l| l.parse::<u32>().ok());
+    let h = lines.next().and_then(|l| l.parse::<u32>().ok());
+    (w, h)
+}
+
+/// Read source dimensions via ffprobe. Never fails the pipeline: any
+/// problem yields `(None, None)` and the caller keeps the legacy path.
+async fn probe_source_dims(ffmpeg_path: &str, source: &Path) -> (Option<u32>, Option<u32>) {
+    let Some(ffprobe) = locate_ffprobe(ffmpeg_path).await else {
+        return (None, None);
+    };
+    let out = cmd_no_window(&ffprobe)
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v:0")
+        .arg("-show_entries")
+        .arg("stream=width,height")
+        .arg("-of")
+        .arg("default=nw=1:nk=1")
+        .arg(source)
+        .output()
+        .await;
+    match out {
+        Ok(o) if o.status.success() => parse_probe_dims(&String::from_utf8_lossy(&o.stdout)),
+        _ => (None, None),
+    }
 }
 
 /// Translate structured ASR cues, preserving source text and timestamps.
@@ -1434,17 +1559,61 @@ async fn fill_translations(
         }
         let text = segment["text"].as_str().context("missing subtitle text")?;
         if !translated.contains_key(text) {
-            let future = crate::translator::translate_text(text, model);
-            tokio::pin!(future);
+            // A single transport blip must not nuke the whole job (70/71
+            // translated then one reset used to fail everything and drop
+            // all in-memory work). Retry a few times with backoff; cancel
+            // stays responsive between attempts.
+            let mut attempt: u32 = 0;
             let zh = loop {
-                tokio::select! {
-                    result = &mut future => { break result?; }
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {
-                        if *cancel_flag.lock().await { anyhow::bail!("cancelled by user"); }
+                attempt += 1;
+                let future = crate::translator::translate_text(text, model);
+                tokio::pin!(future);
+                let result = loop {
+                    tokio::select! {
+                        result = &mut future => { break result; }
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {
+                            if *cancel_flag.lock().await { anyhow::bail!("cancelled by user"); }
+                        }
+                    }
+                };
+                match result {
+                    Ok(zh) => break zh,
+                    Err(e) if attempt <= 3 => {
+                        progress(
+                            "translate",
+                            (i + 1) as f32 / pending.len().max(1) as f32,
+                            &format!(
+                                "雲端翻譯 {}/{}（第{}段連線重試 {}/3）",
+                                i + 1,
+                                pending.len(),
+                                i + 1,
+                                attempt
+                            ),
+                        );
+                        let wait = std::time::Duration::from_secs(2 * attempt as u64);
+                        let start = tokio::time::Instant::now();
+                        while start.elapsed() < wait {
+                            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                            if *cancel_flag.lock().await {
+                                anyhow::bail!("cancelled by user");
+                            }
+                        }
+                        let _ = e;
+                    }
+                    Err(e) => {
+                        return Err(e).with_context(|| {
+                            format!("雲端翻譯第 {} 段失敗（已重試 3 次）", i + 1)
+                        })
                     }
                 }
             };
             translated.insert(text.to_owned(), serde_json::json!(zh));
+            // Checkpoint: completed work must survive a later failure instead
+            // of living only in memory until the final write below.
+            if translated.len() % 10 == 0 {
+                tokio::fs::write(&translation_path, serde_json::to_vec_pretty(&translated)?)
+                    .await?;
+            }
         }
         progress(
             "translate",
@@ -1457,24 +1626,66 @@ async fn fill_translations(
 }
 
 /// Locate ffmpeg.exe on Windows.
+///
+/// The CRT render stage needs the `libplacebo` filter, which only ships in
+/// full builds (gyan `essentials` lacks it). The old code returned the
+/// packaged binary blindly, so a packaged essentials ffmpeg broke every
+/// conversion with `No such filter: 'libplacebo'`. Now we probe every
+/// candidate and prefer the first one that actually exposes libplacebo.
 async fn locate_ffmpeg() -> Result<String> {
+    let mut candidates: Vec<String> = Vec::new();
     if let Some(ffmpeg) = packaged_tool("ffmpeg.exe") {
-        return Ok(ffmpeg.to_string_lossy().to_string());
+        candidates.push(ffmpeg.to_string_lossy().to_string());
     }
-    for candidate in [
-        "ffmpeg",
-        "C:/ProgramData/chocolatey/bin/ffmpeg.exe",
-        "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
-        "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe",
-    ] {
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        candidates.push(
+            PathBuf::from(local)
+                .join("Video2CRT/runtime/tools/ffmpeg.exe")
+                .to_string_lossy()
+                .to_string(),
+        );
+    }
+    candidates.extend(
+        [
+            "ffmpeg",
+            "C:/ProgramData/chocolatey/bin/ffmpeg.exe",
+            "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
+            "C:/Users/asaialabs/AppData/Local/Microsoft/WinGet/Links/ffmpeg.exe",
+        ]
+        .iter()
+        .map(|s| s.to_string()),
+    );
+    let mut first_working: Option<String> = None;
+    for candidate in &candidates {
         let probe = cmd_no_window(candidate).arg("-version").output().await;
-        if let Ok(out) = probe {
+        let runs = matches!(probe, Ok(ref out) if out.status.success());
+        if !runs {
+            continue;
+        }
+        if first_working.is_none() {
+            first_working = Some(candidate.clone());
+        }
+        // Capability probe: must expose the libplacebo filter for CRT render.
+        let filters = cmd_no_window(candidate)
+            .arg("-hide_banner")
+            .arg("-filters")
+            .output()
+            .await;
+        if let Ok(out) = filters {
             if out.status.success() {
-                return Ok(candidate.to_string());
+                let text = String::from_utf8_lossy(&out.stdout);
+                if text.contains("libplacebo") {
+                    return Ok(candidate.clone());
+                }
             }
         }
     }
-    anyhow::bail!("ffmpeg not found")
+    if let Some(fallback) = first_working {
+        // No candidate has libplacebo; return one that at least runs so the
+        // render stage can surface the real ffmpeg stderr downstream.
+        return Ok(fallback);
+    }
+    anyhow::bail!("ffmpeg not found (need a full build with libplacebo filter)")
 }
 
 #[cfg(test)]
@@ -1533,6 +1744,59 @@ mod subtitle_output_tests {
         ));
         assert!(!needs_embedded_client_fallback("ffmpeg failed: Invalid argument"));
         assert!(!needs_embedded_client_fallback("video is private"));
+    }
+
+    #[test]
+    fn verbatim_prefix_is_stripped_for_native_model_loaders() {
+        // ctranslate2 (faster-whisper) cannot open model files under
+        // `\\?\`-prefixed paths; plain paths must come out unchanged.
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"\\?\C:\app\runtime\models\asr")),
+            PathBuf::from(r"C:\app\runtime\models\asr")
+        );
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\models")),
+            PathBuf::from(r"\\server\share\models")
+        );
+        assert_eq!(
+            strip_verbatim_prefix(PathBuf::from(r"C:\app\runtime\models\asr")),
+            PathBuf::from(r"C:\app\runtime\models\asr")
+        );
+    }
+
+    #[test]
+    fn prescale_only_for_sub_1080p_sources() {
+        // 480p / 720p: pre-upscale ahead of libplacebo.
+        assert!(needs_prescale(Some(640), Some(480)));
+        assert!(needs_prescale(Some(1280), Some(720)));
+        // 1080p (incl. 4:3 1440x1080) and above: legacy direct path.
+        assert!(!needs_prescale(Some(1920), Some(1080)));
+        assert!(!needs_prescale(Some(1440), Some(1080)));
+        assert!(!needs_prescale(Some(3840), Some(2160)));
+        // Unknown / degenerate probe results: legacy path (safe).
+        assert!(!needs_prescale(None, None));
+        assert!(!needs_prescale(Some(640), None));
+        assert!(!needs_prescale(None, Some(480)));
+        assert!(!needs_prescale(Some(0), Some(0)));
+        // Filter graph shape.
+        let vf = render_filter("640:480:0:0", true);
+        assert!(vf.contains("scale=1920:1080:flags=lanczos"), "{vf}");
+        assert!(vf.contains("libplacebo="), "{vf}");
+        let vf = render_filter("1418:1074:252:6", false);
+        assert!(!vf.contains("lanczos"), "{vf}");
+        assert!(vf.contains("libplacebo="), "{vf}");
+    }
+
+    #[test]
+    fn probe_dims_parse_only_valid_numbers() {
+        assert_eq!(parse_probe_dims("640\n480\n"), (Some(640), Some(480)));
+        assert_eq!(
+            parse_probe_dims("1920\n1080\n"),
+            (Some(1920), Some(1080))
+        );
+        assert_eq!(parse_probe_dims(""), (None, None));
+        assert_eq!(parse_probe_dims("N/A\nN/A\n"), (None, None));
+        assert_eq!(parse_probe_dims("640\n"), (Some(640), None));
     }
 
     #[test]

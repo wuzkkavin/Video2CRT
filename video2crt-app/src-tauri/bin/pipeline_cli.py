@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import traceback
@@ -61,6 +60,7 @@ from video2crt.asr import extract_audio, transcribe  # noqa: E402
 from video2crt.subtitle import (  # noqa: E402
     build_srt,
     fmt_time,
+    is_bracketed_cue,
     is_skip,
     is_yt_watermark,
 )
@@ -345,60 +345,10 @@ def merge_segments(
 from subtitle_engine import (
     build_srt_original,
     build_srt_two_line,
-    clip_captions_to_duration,
-    load_youtube_captions,
-    merge_parallel_caption_tracks,
     normalize_segments,
-    select_source_captions,
     split_spoken_captions,
     translate_locally,
 )
-
-
-def locate_ytdlp() -> Path | None:
-    local = Path(os.environ.get("LOCALAPPDATA", ""))
-    runtime = Path(os.environ.get("VIDEO2CRT_RUNTIME_DIR", "").strip())
-    candidates = [
-        runtime / "tools/yt-dlp.exe",
-        local / "hermes/hermes-agent/venv/Scripts/yt-dlp.exe",
-        local / "hermes/hermes-agent/Scripts/yt-dlp.exe",
-        local / "Video2CRT/bin/yt-dlp.exe",
-        local / "Microsoft/WinGet/Links/yt-dlp.exe",
-        Path(os.environ.get("APPDATA", "")) / "Python/Python311/Scripts/yt-dlp.exe",
-        Path("C:/ProgramData/chocolatey/bin/yt-dlp.exe"),
-    ]
-    found = shutil.which("yt-dlp")
-    if found:
-        candidates.append(Path(found))
-    return next((candidate for candidate in candidates if candidate.is_file()), None)
-
-
-def youtube_declared_language(url: str) -> str | None:
-    """Read YouTube's language metadata without downloading media or captions.
-
-    Whisper can confidently hallucinate a language over music. When the
-    uploader/YouTube declares a supported original language, that is the
-    correct language to request for an exact caption track.
-    """
-    executable = locate_ytdlp()
-    if not executable or not url:
-        return None
-    command = [str(executable), "--no-playlist", "--skip-download",
-               "--dump-single-json", url]
-    try:
-        completed = subprocess.run(
-            command, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=60,
-        )
-        if completed.returncode != 0:
-            return None
-        language = json.loads(completed.stdout).get("language")
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        return None
-    if not isinstance(language, str):
-        return None
-    language = language.strip().lower().split("-")[0]
-    return language if language else None
 
 
 def prefer_declared_caption_language(
@@ -422,78 +372,6 @@ def prefer_declared_caption_language(
     return declared if confidence < 0.70 else asr_language
 
 
-def fetch_exact_youtube_captions(
-    url: str, language: str | None, output_dir: Path
-) -> list[dict]:
-    """Fetch only a track matching the spoken language; return [] on absence."""
-    executable = locate_ytdlp()
-    if not executable or not url or not language:
-        return []
-    base = language.lower().split("-")[0]
-    if base in ("zh", "yue"):
-        requested = ["zh-Hant", "zh-Hans", "zh"]
-        if base == "yue":
-            requested.insert(0, "yue")
-        declared_language = "zh"
-    else:
-        requested = [base]
-        declared_language = base
-    for code in requested:
-        command = [
-            str(executable), "--no-playlist", "--skip-download",
-            "--write-subs", "--write-auto-subs", "--no-overwrites",
-            "--sub-langs", code, "--sub-format", "srt/vtt/best",
-            "-o", "youtube-source.%(ext)s", url,
-        ]
-        try:
-            completed = subprocess.run(
-                command, cwd=str(output_dir), capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=120,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return []
-        if completed.returncode != 0:
-            continue
-        files = sorted(output_dir.glob(f"youtube-source.{code}.*"), key=lambda p: p.suffix != ".srt")
-        for caption_file in files:
-            if caption_file.suffix.lower() not in (".srt", ".vtt"):
-                continue
-            captions = load_youtube_captions(caption_file, declared_language)
-            if captions:
-                return captions
-    return []
-
-
-def fetch_traditional_youtube_captions(url: str, output_dir: Path) -> list[dict]:
-    """Fetch an explicit Traditional Chinese track when the uploader provides one."""
-    executable = locate_ytdlp()
-    if not executable or not url:
-        return []
-    command = [
-        str(executable), "--no-playlist", "--skip-download",
-        "--write-subs", "--write-auto-subs", "--no-overwrites",
-        "--sub-langs", "zh-Hant", "--sub-format", "srt/vtt/best",
-        "-o", "youtube-translation.%(ext)s", url,
-    ]
-    try:
-        completed = subprocess.run(
-            command, cwd=str(output_dir), capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=120,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if completed.returncode != 0:
-        return []
-    files = sorted(output_dir.glob("youtube-translation.zh-Hant.*"),
-                   key=lambda p: p.suffix != ".srt")
-    for caption_file in files:
-        if caption_file.suffix.lower() in (".srt", ".vtt"):
-            captions = load_youtube_captions(caption_file, "zh")
-            if captions:
-                return captions
-    return []
-
-
 def finalize(args: dict[str, Any]) -> int:
     """Build and burn only after every required translation exists."""
     output_dir = Path(args["outputDir"])
@@ -510,6 +388,15 @@ def finalize(args: dict[str, Any]) -> int:
         if missing:
             translations.update(translate_locally(
                 missing, lambda message: emit("translate", 0.5, message)))
+        # Segments the local model cannot translate are dropped from the
+        # SRT entirely (neither translation nor original is shown), so one
+        # bad cue never aborts the whole video.
+        untranslated = [segment for segment in segments
+                        if segment.get("language") != "zh" and not translations.get(segment["text"])]
+        if untranslated:
+            emit("translate", 0.5, f"略過 {len(untranslated)} 段無法翻譯（僅原文也不顯示）")
+            segments = [segment for segment in segments
+                        if segment.get("language") == "zh" or translations.get(segment["text"])]
         translation_file.write_text(
             json.dumps(translations, ensure_ascii=False, indent=2), encoding="utf-8")
     srt_text = (build_srt_original(segments) if subtitle_mode == "original"
@@ -625,37 +512,20 @@ def run(args: dict[str, Any]) -> int:
     emit("asr", 0.55, f"stage 1 complete: {len(main_segs)} segments")
 
     detected_language = main_segs[0].get("language", asr_language) if main_segs else asr_language
-    declared_language = youtube_declared_language(str(args.get("url") or ""))
-    caption_language = prefer_declared_caption_language(
-        main_segs, detected_language, declared_language)
+    # Local ASR is the ONLY subtitle source. YouTube caption tracks are
+    # never fetched or adopted: live speeches and uncaptioned videos must
+    # behave identically, and network caption availability must not be able
+    # to change the output.
     # Do not infer "missing speech" from instrumental pauses and run an English
     # model over non-English songs. A single multilingual pass owns the timeline.
     duration = ffprobe_duration(source_mp4)
-    asr_segments = normalize_segments(split_spoken_captions(main_segs), duration)
-    emit("asr", 0.65, "檢查 YouTube 是否有與原語言相符的字幕")
-    youtube_captions = fetch_exact_youtube_captions(
-        str(args.get("url") or ""), caption_language, output_dir)
-    youtube_captions = clip_captions_to_duration(youtube_captions, duration)
-    selected = select_source_captions(asr_segments, youtube_captions, caption_language)
-    if selected is youtube_captions:
-        segments = normalize_segments(youtube_captions, duration)
-        subtitle_source = "youtube-caption"
-        detected_language = caption_language
-        emit("asr", 0.9, f"採用已驗證的原語 YouTube 字幕：{len(segments)} 段")
-    else:
-        segments = asr_segments
-        subtitle_source = "local-asr"
-        emit("asr", 0.9, "沒有完整且語言相符的 YouTube 字幕，採用本機語音辨識")
-    if detected_language not in ("zh", "yue"):
-        traditional_track = clip_captions_to_duration(
-            fetch_traditional_youtube_captions(str(args.get("url") or ""), output_dir), duration)
-        segments, verified_translations = merge_parallel_caption_tracks(
-            segments, traditional_track)
-        segments = normalize_segments(segments, duration)
-        if verified_translations:
-            (output_dir / "subtitle_translations.json").write_text(
-                json.dumps(verified_translations, ensure_ascii=False, indent=2), encoding="utf-8")
-            emit("asr", 0.95, f"採用 {len(verified_translations)} 段已提供的繁體中文字幕")
+    segments = normalize_segments(split_spoken_captions(main_segs), duration)
+    # Drop bracketed sound cues (e.g. ["Pomp and Circumstance"], [Music]):
+    # non-speech markers the local translator must never see. Bare weird
+    # speech (gotcha 17) is never bracket-wrapped and is always kept.
+    segments = [s for s in segments if not is_bracketed_cue(s.get("text", ""))]
+    subtitle_source = "local-asr"
+    emit("asr", 0.9, f"採用本機語音辨識：{len(segments)} 段")
     (output_dir / "subtitle_segments.json").write_text(
         json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
     (output_dir / "subtitle_source.json").write_text(json.dumps({

@@ -34,6 +34,22 @@ def is_yt_watermark(text: str) -> bool:
     return any(kw in text_lower for kw in keywords)
 
 
+def is_bracketed_cue(text: str) -> bool:
+    """Non-speech marker fully wrapped in brackets (sound-cue style).
+
+    Drops ONLY lines whose entire stripped text is one [...] or (...)
+    marker (e.g. `["Pomp and Circumstance"]`, `[Music]`, `(applause)`).
+    Bare weird speech (gotcha 17: Bullshit, Kick the hop...) never matches
+    because it is not bracket-wrapped; quoted lyric emphasis with 「」/『』
+    is deliberately NOT matched.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    return (stripped.startswith("[") and stripped.endswith("]")) or (
+        stripped.startswith("(") and stripped.endswith(")"))
+
+
 def fmt_time(t: float) -> str:
     """Convert seconds to SRT timestamp HH:MM:SS,mmm"""
     h = int(t // 3600)

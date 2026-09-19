@@ -1,5 +1,29 @@
 # Video2CRT - HANDOFF
 
+## 2026-09-19 本機字幕正常化（老吳令：不用 YT 字幕、除運氣、不打包）
+
+- YT 字幕路徑已刪：`fetch_exact/traditional_youtube_captions`、`youtube_declared_language`、`locate_ytdlp` 移除，原文字幕只取自本機 ASR；合約測試鎖定（`test_no_youtube_caption_fetch_exists`）。注意：gotcha 19/20（YT CC 允許/交叉驗證）已被此令取代，skill 本體在別 repo，改 skill 另案處理。
+- 確定性：ASR `temperature=0`＋單線程、`Translator` 單線程；同一音檔雙跑 byte 級相同（之前 13 vs 7 段亂跳的元兇是 temperature fallback 抽樣）。
+- 括號音效標記（`["Pomp and Circumstance"]` 類）原文階段剔除；裸口語不受影響（gotcha 17 守住，有測試）。
+- 未譯句政策（老吳親定）：整句略過、原文亦不顯示；雲端模式維持失敗即停。 southern/steampunk/marcha 三單實測零例外全過。
+- 測試：根目錄 15、契約 29、Rust 15，合計 59 全綠。效果凍結 pipe 未動；exe 免重編（sidecar 隨跑單載入）。
+- 殘留：同網址重下載位元組可能不同（源頭運氣，極小）；一次只開一支 App 轉（雙開搶雲端會被限）。
+
+- 回歸總帳（全部有證據）：southern 新 raw == archive rawA3（648,093,214B）；docomo(4) raw == (2) raw（367,818,064B）；28 個輸出 crt.glsl 同 hash；encode 鏈與 CLI 期相同；Python sidecar＋模型零改動（git clean）。
+- 認一條：預放大門控死的（ffmpeg 不吃 stream-selection flags，probe 永遠失敗）→ docomo(4) 白跑。已改走 ffprobe 取寬高＋單元測試；southern 480p 預放大實 render 並排勝出。
+- 本機翻譯 southern：31/32 獨立通過，唯一失敗是第 3 段確定性內容邊界（模型回 21 字非中文），合約正確觸發，非回歸；該片請用雲端模式（已驗可翻）。
+- translate 階段 audit：所有等待皆有界（32s、≤4 次、退避、可取消）＋10 段一存檔；雙開搶 API 請避免一次開兩支。
+- 亮場洗白：southern v20 舊成品亮場一樣洗白，早於本次修改；屬內容物理。
+- exe `target/release/video2crt.exe` 2026-09-19 00:34（14 lib 測試綠）。待老吳 E2E：docomo＋southern 重轉。
+- 本機翻譯 southern 卡第 3 段：M2M100 beam 退化成 ⁇⁇⁇（3/3 確定性），合約正確擋下。修法：beam 無效則 greedy 重試一次，否則原樣失敗。只動 subtitle_engine.py＋同步 runtime 拷貝，效果零碰觸，免重編；實測 translate_locally 32 段 29 組全過。
+
+- render：`locate_ffmpeg` 改挑含 `libplacebo` 者（essentials 無此 filter 是首屏錯誤主因）；stderr 接回 UI。
+- ASR：剝除 `\\?\` verbatim 前綴（`current_exe` 帶入，ctranslate2 打不開 model.bin）；刪 `target/release/runtime/models/asr` 混入的 turbo `preprocessor_config.json`（128 mel vs small 權重 80）。
+- 翻譯：單段重試 3 次 + 退避，10 段一存檔。
+- render 預放大（老吳欽點）：來源雙邊小於 1920x1080 才 `scale=lanczos` 先拉 1080p 再進 libplacebo；1080p（含 1448x1080）與未知尺寸走原路。格線全片統一原強度（自適應弱格線已撤回，老吳親驗預放大+全格線較好）。
+- 驗證：13 lib 測試綠；docomo 480p 並排盲比預放大勝；exe `target/release/video2crt.exe` 2026-09-19 00:12。
+- 未驗：老吳完整 E2E（docomo 重轉）待他測。
+
 ## 最終收工紀錄 — 2026-09-18 運行介面回歸修正
 
 ### 本輪完成

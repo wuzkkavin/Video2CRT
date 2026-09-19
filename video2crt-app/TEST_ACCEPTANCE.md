@@ -2,12 +2,12 @@
 
 ## 本輪完整自動化驗證總覽
 
-「26 項」只代表 APP 字幕契約測試，不代表整個專案的測試總數。本輪已執行並通過 **51 項自動化測試**：
+「29 項」只代表 APP 字幕契約測試，不代表整個專案的測試總數。本輪已執行並通過 **59 項自動化測試**：
 
-- 根目錄 Python 回歸測試：13 項（`python tests/run_all.py`）。
-- APP Python 字幕契約測試：26 項（需先設定 repo `src` 的 `PYTHONPATH`）。
-- Rust `cargo test --all-targets`：12 項（11 項 library unit tests、1 項 orchestrator integration test；各 binary harness 僅編譯，沒有測試函式）。
-- 合計：13 + 26 + 12 = 51 項通過。
+- 根目錄 Python 回歸測試：15 項（`python tests/run_all.py`）。
+- APP Python 字幕契約測試：29 項（需先設定 repo `src` 的 `PYTHONPATH`）。
+- Rust `cargo test --all-targets`：15 項（14 項 library unit tests、1 項 orchestrator integration test；各 binary harness 僅編譯，沒有測試函式）。
+- 合計：15 + 29 + 15 = 59 項通過。
 
 測試前置檢查另由 `python scripts/install_skill.py` 執行；本機實測 **38 條 CRT skill gotcha**，最低新鮮度門檻為 36，並輸出 `[ALL PASS]`。gotcha 數量不是測試案例數量，兩者不可混用。
 
@@ -18,9 +18,9 @@
 | 前端靜態建置 | `npm run build` | 已驗證，TypeScript/Vite 通過 |
 | Rust 編譯 | `cargo check --manifest-path src-tauri/Cargo.toml` | 已驗證 |
 | CRT skill 與依賴前置檢查 | `python scripts/install_skill.py` | 已驗證，38 條 gotcha，v36+ `[ALL PASS]` |
-| 根目錄 Python 回歸 | `$env:PYTHONPATH=(Resolve-Path 'src').Path; python tests/run_all.py` | 已驗證，13 項通過 |
-| Rust 全部測試目標 | `cargo test --manifest-path src-tauri/Cargo.toml --all-targets -- --test-threads=1` | 已驗證，12 項通過（11 library + 1 integration） |
-| Python 字幕契約 | `$env:PYTHONPATH=(Resolve-Path '..\\src').Path; python scripts/test_subtitle_contract.py` | 已驗證，26 項通過 |
+| 根目錄 Python 回歸 | `$env:PYTHONPATH=(Resolve-Path 'src').Path; python tests/run_all.py` | 已驗證，15 項通過 |
+| Rust 全部測試目標 | `cargo test --manifest-path src-tauri/Cargo.toml --all-targets -- --test-threads=1` | 已驗證，15 項通過（14 library + 1 integration） |
+| Python 字幕契約 | `$env:PYTHONPATH=(Resolve-Path '..\\src').Path; python scripts/test_subtitle_contract.py` | 已驗證，29 項通過 |
 | 發布建置 | `powershell -File scripts/build-distributable.ps1` | 已驗證，NSIS 完成 |
 | 安裝冒煙 | NSIS silent install + 啟動 5 秒 | 已驗證，exit 0、程式持續執行 |
 | 高品質模型實際下載 | NSIS 安裝時 3.2 GB 下載 | 未驗證，避免本輪下載大型模型 |
